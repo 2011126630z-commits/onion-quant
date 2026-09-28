@@ -7,22 +7,54 @@ const page = String.raw`<!doctype html>
     <title>量化监控</title>
     <style>
       :root {
-        color-scheme: dark;
-        --bg: #000;
-        --panel: #101010;
-        --panel-2: #181818;
-        --line: #262626;
-        --text: #f4f4f4;
-        --muted: #8b8b8b;
-        --green: #00c076;
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --panel: #f4f5f5;
+        --panel-2: #ecefee;
+        --line: #dde2e0;
+        --text: #202423;
+        --muted: #6f7875;
+        --green: #006b4f;
         --red: #f6465d;
         --gray: #9ca3af;
+        --nav-bg: rgba(255, 255, 255, .94);
+        --chart-bg: #f4f5f5;
+        --button-text: #ffffff;
+      }
+      :root.theme-dark {
+        color-scheme: dark;
+        --bg: #121212;
+        --panel: #1e1e1e;
+        --panel-2: #262626;
+        --line: #333333;
+        --text: #f4f4f4;
+        --muted: #9b9b9b;
+        --green: #007a5a;
+        --red: #f6465d;
+        --gray: #9ca3af;
+        --nav-bg: rgba(18, 18, 18, .94);
+        --chart-bg: #181818;
+        --button-text: #ffffff;
       }
       * { box-sizing: border-box; }
-      html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        transition: background-color 500ms ease, color 500ms ease;
+      }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         font-size: 15px;
+      }
+      body, .app, .card, .bottom-nav, select, input, button, .period-btn, .primary-btn, .add-btn, .switch {
+        transition:
+          background-color 500ms ease,
+          border-color 500ms ease,
+          color 500ms ease,
+          box-shadow 500ms ease,
+          transform 360ms cubic-bezier(.2, 1.35, .3, 1);
       }
       button, select, input { font: inherit; }
       button { cursor: pointer; }
@@ -30,17 +62,28 @@ const page = String.raw`<!doctype html>
         width: min(760px, 100%);
         min-height: 100vh;
         margin: 0 auto;
-        padding: 12px 12px calc(84px + env(safe-area-inset-bottom));
+        padding: 10px 10px calc(78px + env(safe-area-inset-bottom));
       }
-      .page { display: none; }
-      .page.active { display: block; }
+      .page {
+        display: none;
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      .page.active {
+        display: block;
+        animation: pageIn 300ms ease both;
+      }
+      @keyframes pageIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
       .top-row, .controls-row, .market-row, .watch-row, .setting-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 10px;
       }
-      .top-row { margin-bottom: 12px; }
+      .top-row { margin-bottom: 9px; }
       h1, h2, p { margin: 0; }
       h1 { font-size: 22px; font-weight: 800; }
       h2 { font-size: 16px; font-weight: 800; }
@@ -49,7 +92,7 @@ const page = String.raw`<!doctype html>
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--panel);
-        padding: 12px;
+        padding: 10px;
       }
       select, input {
         min-height: 40px;
@@ -64,8 +107,8 @@ const page = String.raw`<!doctype html>
       .periods {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
-        margin: 12px 0;
+        gap: 7px;
+        margin: 9px 0;
       }
       .period-btn, .primary-btn, .icon-btn, .add-btn {
         border: 1px solid var(--line);
@@ -74,18 +117,30 @@ const page = String.raw`<!doctype html>
         color: var(--text);
         min-height: 40px;
       }
-      .period-btn.active { border-color: var(--text); background: #242424; }
+      .period-btn.active { border-color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--panel-2)); color: var(--green); }
       .chart-card {
+        position: relative;
         height: 330px;
         padding: 0;
         overflow: hidden;
       }
       canvas { display: block; width: 100%; height: 100%; }
+      .chart-empty {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        text-align: center;
+        color: var(--muted);
+        background: var(--chart-bg);
+      }
+      .chart-empty.hidden { display: none; }
       .price-card {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-top: 12px;
+        gap: 8px;
+        margin-top: 9px;
       }
       .price-main { grid-column: 1 / -1; }
       .label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
@@ -94,7 +149,7 @@ const page = String.raw`<!doctype html>
       .green { color: var(--green); }
       .red { color: var(--red); }
       .gray { color: var(--gray); }
-      .analysis-card { margin-top: 12px; }
+      .analysis-card { margin-top: 9px; }
       .signal {
         display: flex;
         align-items: baseline;
@@ -104,22 +159,23 @@ const page = String.raw`<!doctype html>
       }
       .signal strong { font-size: 34px; }
       .signal span { color: var(--muted); font-size: 13px; }
-      .analysis-text { color: #cfcfcf; line-height: 1.55; }
+      .analysis-text { color: var(--muted); line-height: 1.55; }
       .primary-btn {
         width: 100%;
-        margin-top: 12px;
+        margin-top: 9px;
         height: 48px;
-        background: #f4f4f4;
-        color: #000;
+        border-color: var(--green);
+        background: var(--green);
+        color: var(--button-text);
         font-weight: 800;
       }
       .section-title { margin: 2px 0 12px; }
       .list {
         display: grid;
-        gap: 8px;
+        gap: 7px;
       }
       .market-row, .watch-row, .setting-row {
-        min-height: 62px;
+        min-height: 56px;
       }
       .coin-name { font-weight: 800; }
       .coin-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
@@ -132,7 +188,7 @@ const page = String.raw`<!doctype html>
         padding: 5px 9px;
         font-size: 12px;
         font-weight: 800;
-        background: #222;
+        background: var(--panel-2);
       }
       .pill.green { background: rgba(0, 192, 118, .12); }
       .pill.red { background: rgba(246, 70, 93, .12); }
@@ -141,11 +197,11 @@ const page = String.raw`<!doctype html>
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 8px;
-        margin-bottom: 12px;
+        margin-bottom: 9px;
       }
       .setting-list {
         display: grid;
-        gap: 8px;
+        gap: 7px;
       }
       .setting-row select, .setting-row input { width: 150px; }
       .switch {
@@ -154,7 +210,7 @@ const page = String.raw`<!doctype html>
         height: 28px;
         border-radius: 999px;
         border: 1px solid var(--line);
-        background: #222;
+        background: var(--panel-2);
       }
       .switch.on { background: rgba(0, 192, 118, .35); }
       .switch::after {
@@ -171,8 +227,23 @@ const page = String.raw`<!doctype html>
       .status {
         color: var(--muted);
         font-size: 13px;
-        margin: 10px 0;
+        margin: 8px 0;
         min-height: 18px;
+      }
+      .progress {
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--panel-2);
+        margin: 8px 0 10px;
+      }
+      .progress span {
+        display: block;
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--green);
+        transition: width 300ms ease;
       }
       .bottom-nav {
         position: fixed;
@@ -184,20 +255,30 @@ const page = String.raw`<!doctype html>
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         border-top: 1px solid var(--line);
-        background: #050505;
-        padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+        background: var(--nav-bg);
+        backdrop-filter: blur(18px);
+        padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
       }
       .nav-btn {
         display: grid;
         gap: 3px;
         place-items: center;
-        min-height: 48px;
+        min-height: 46px;
         border: 0;
         background: transparent;
         color: var(--muted);
       }
-      .nav-btn.active { color: var(--text); }
-      .nav-icon { font-size: 18px; line-height: 1; }
+      .nav-btn.active {
+        color: var(--green);
+        transform: scale(1.1);
+        animation: navPop 420ms cubic-bezier(.2, 1.45, .28, 1);
+      }
+      @keyframes navPop {
+        0% { transform: scale(.96); }
+        55% { transform: scale(1.15); }
+        100% { transform: scale(1.1); }
+      }
+      .nav-icon { font-size: 17px; line-height: 1; font-weight: 500; }
       .nav-text { font-size: 12px; }
       @media (max-width: 430px) {
         .app { padding-left: 10px; padding-right: 10px; }
@@ -215,7 +296,10 @@ const page = String.raw`<!doctype html>
           <select id="symbolSelect" class="select-wide"></select>
         </div>
         <div class="periods" id="monitorPeriods"></div>
-        <div class="card chart-card"><canvas id="chart"></canvas></div>
+        <div class="card chart-card">
+          <canvas id="chart"></canvas>
+          <div id="chartEmpty" class="chart-empty">暂无K线数据，点击开始分析重试。</div>
+        </div>
         <div class="price-card">
           <div class="card price-main">
             <span class="label">当前价格</span>
@@ -252,6 +336,8 @@ const page = String.raw`<!doctype html>
           </select>
         </div>
         <p id="scanStatus" class="status">点击扫描，批量分析成交额靠前的交易对。</p>
+        <div class="progress"><span id="scanProgress"></span></div>
+        <button id="scanBtn" class="primary-btn" type="button">开始扫描</button>
         <div id="scanList" class="list"></div>
       </section>
 
@@ -302,6 +388,17 @@ const page = String.raw`<!doctype html>
           </div>
           <div class="card setting-row">
             <div>
+              <div class="coin-name">主题模式</div>
+              <div class="coin-sub">浅色、深色或跟随系统</div>
+            </div>
+            <select id="themeMode">
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </div>
+          <div class="card setting-row">
+            <div>
               <div class="coin-name">提醒开关</div>
               <div class="coin-sub">明显看涨/看跌时高亮</div>
             </div>
@@ -332,9 +429,12 @@ const page = String.raw`<!doctype html>
         interval: settings.interval || "1h",
         scanLimit: settings.scanLimit || "20",
         refreshInterval: settings.refreshInterval || "30",
+        themeMode: settings.themeMode || "system",
         notify: settings.notify !== false,
         watch: JSON.parse(localStorage.getItem("watchSymbols") || '["BTCUSDT","ETHUSDT"]'),
-        timer: null
+        timer: null,
+        analyzing: false,
+        scanning: false
       };
       const $ = (id) => document.getElementById(id);
       const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 });
@@ -345,16 +445,35 @@ const page = String.raw`<!doctype html>
           interval: state.interval,
           scanLimit: state.scanLimit,
           refreshInterval: state.refreshInterval,
+          themeMode: state.themeMode,
           notify: state.notify
         }));
       }
 
-      function api(path) {
+      async function api(path, attempts = 3) {
         const joiner = path.includes("?") ? "&" : "?";
-        return fetch("/api/" + path + joiner + "_=" + Date.now()).then((res) => {
-          if (!res.ok) throw new Error("行情读取失败");
-          return res.json();
-        });
+        let lastError;
+        for (let i = 0; i < attempts; i += 1) {
+          try {
+            const res = await fetchWithTimeout("/api/" + path + joiner + "_=" + Date.now(), 10000);
+            if (!res.ok) throw new Error("行情读取失败");
+            return res.json();
+          } catch (error) {
+            lastError = error;
+            if (i < attempts - 1) await delay(650);
+          }
+        }
+        throw lastError || new Error("行情读取失败");
+      }
+
+      function fetchWithTimeout(url, ms) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), ms);
+        return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+      }
+
+      function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
       }
 
       function pctClass(value) {
@@ -365,6 +484,13 @@ const page = String.raw`<!doctype html>
         if (signal === "看涨") return "green";
         if (signal === "看跌") return "red";
         return "gray";
+      }
+
+      function applyTheme() {
+        const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const useDark = state.themeMode === "dark" || (state.themeMode === "system" && prefersDark);
+        document.documentElement.classList.toggle("theme-dark", useDark);
+        document.querySelector('meta[name="theme-color"]').setAttribute("content", useDark ? "#121212" : "#ffffff");
       }
 
       function sma(values, length) {
@@ -453,6 +579,7 @@ const page = String.raw`<!doctype html>
 
       function drawChart(klines) {
         const canvas = $("chart");
+        $("chartEmpty").classList.toggle("hidden", Boolean(klines && klines.length));
         const rect = canvas.parentElement.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
         const width = Math.max(320, rect.width);
@@ -463,11 +590,21 @@ const page = String.raw`<!doctype html>
         canvas.style.height = height + "px";
         const ctx = canvas.getContext("2d");
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.fillStyle = "#101010";
+        const styles = getComputedStyle(document.documentElement);
+        const chartBg = styles.getPropertyValue("--chart-bg").trim() || "#181818";
+        const gridColor = styles.getPropertyValue("--line").trim() || "#252525";
+        const mutedColor = styles.getPropertyValue("--muted").trim() || "#8b8b8b";
+        const green = styles.getPropertyValue("--green").trim() || "#007a5a";
+        const red = styles.getPropertyValue("--red").trim() || "#f6465d";
+        ctx.fillStyle = chartBg;
         ctx.fillRect(0, 0, width, height);
         const data = klines.slice(-70).map((k) => ({
           open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4])
         }));
+        if (!data.length) {
+          $("chartEmpty").classList.remove("hidden");
+          return;
+        }
         const max = Math.max(...data.map((k) => k.high));
         const min = Math.min(...data.map((k) => k.low));
         const pad = { top: 14, right: 50, bottom: 24, left: 8 };
@@ -476,7 +613,7 @@ const page = String.raw`<!doctype html>
         const range = max - min || 1;
         const y = (price) => pad.top + (max - price) / range * chartH;
         const step = chartW / data.length;
-        ctx.strokeStyle = "#252525";
+        ctx.strokeStyle = gridColor;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 4; i++) {
           const yy = pad.top + chartH / 4 * i;
@@ -484,14 +621,14 @@ const page = String.raw`<!doctype html>
           ctx.moveTo(pad.left, yy);
           ctx.lineTo(width - pad.right + 8, yy);
           ctx.stroke();
-          ctx.fillStyle = "#8b8b8b";
+          ctx.fillStyle = mutedColor;
           ctx.font = "11px sans-serif";
           ctx.fillText(fmt.format(max - range / 4 * i), width - pad.right + 12, yy + 4);
         }
         data.forEach((k, i) => {
           const x = pad.left + step * i + step / 2;
           const up = k.close >= k.open;
-          const color = up ? "#00c076" : "#f6465d";
+          const color = up ? green : red;
           const bodyTop = y(Math.max(k.open, k.close));
           const bodyBottom = y(Math.min(k.open, k.close));
           const bodyW = Math.max(3, Math.min(9, step * .62));
@@ -506,6 +643,9 @@ const page = String.raw`<!doctype html>
       }
 
       async function analyzeCurrent() {
+        if (state.analyzing) return;
+        state.analyzing = true;
+        $("analyzeBtn").disabled = true;
         $("monitorStatus").textContent = "正在读取行情...";
         try {
           const [ticker, klines] = await Promise.all([
@@ -524,12 +664,20 @@ const page = String.raw`<!doctype html>
           $("reason").textContent = result.reason;
           $("monitorStatus").textContent = "已更新 " + new Date().toLocaleTimeString("zh-CN");
         } catch (error) {
-          $("monitorStatus").textContent = "行情读取失败，稍后再试。";
+          $("chartEmpty").classList.remove("hidden");
+          $("monitorStatus").textContent = "行情暂时读取失败，已自动重试。请稍后再点开始分析。";
+        } finally {
+          state.analyzing = false;
+          $("analyzeBtn").disabled = false;
         }
       }
 
       async function scanMarket() {
-        $("scanStatus").textContent = "正在扫描...";
+        if (state.scanning) return;
+        state.scanning = true;
+        $("scanBtn").disabled = true;
+        $("scanStatus").textContent = "正在准备扫描...";
+        $("scanProgress").style.width = "0%";
         $("scanList").replaceChildren();
         try {
           const tickers = await api("tickers?market=futures");
@@ -537,14 +685,30 @@ const page = String.raw`<!doctype html>
             .filter((t) => t.symbol.endsWith("USDT") && !t.symbol.includes("_"))
             .sort((a, b) => Number(b.quoteVolume) - Number(a.quoteVolume))
             .slice(0, Number(state.scanLimit));
-          const rows = await Promise.all(candidates.map(async (ticker) => {
-            const klines = await api("klines?market=futures&symbol=" + ticker.symbol + "&interval=" + $("scanPeriod").value + "&limit=120");
-            return analyzeKlines(ticker.symbol, ticker, klines);
-          }));
-          rows.forEach(addScanRow);
-          $("scanStatus").textContent = "已扫描 " + rows.length + " 个交易对";
+          let done = 0;
+          let success = 0;
+          for (let i = 0; i < candidates.length; i += 5) {
+            const batch = candidates.slice(i, i + 5);
+            for (const ticker of batch) {
+              $("scanStatus").textContent = "正在扫描 " + ticker.symbol.replace("USDT", "/USDT") + "（" + (done + 1) + "/" + candidates.length + "）";
+              try {
+                const klines = await api("klines?market=futures&symbol=" + ticker.symbol + "&interval=" + $("scanPeriod").value + "&limit=120", 2);
+                addScanRow(analyzeKlines(ticker.symbol, ticker, klines));
+                success += 1;
+              } catch (error) {
+                addScanErrorRow(ticker.symbol);
+              }
+              done += 1;
+              $("scanProgress").style.width = Math.round((done / candidates.length) * 100) + "%";
+              if (done < candidates.length) await delay(500);
+            }
+          }
+          $("scanStatus").textContent = "扫描完成，成功 " + success + " 个，失败 " + (candidates.length - success) + " 个";
         } catch (error) {
-          $("scanStatus").textContent = "扫描失败，稍后再试。";
+          $("scanStatus").textContent = "扫描暂时失败，网络不稳定，请稍后重试。";
+        } finally {
+          state.scanning = false;
+          $("scanBtn").disabled = false;
         }
       }
 
@@ -552,6 +716,13 @@ const page = String.raw`<!doctype html>
         const row = document.createElement("div");
         row.className = "card market-row";
         row.innerHTML = '<div><div class="coin-name">' + item.symbol.replace("USDT", "/USDT") + '</div><div class="coin-sub">' + fmt.format(item.price) + '</div></div><div class="right"><div class="' + pctClass(item.change) + '">' + (item.change >= 0 ? "+" : "") + item.change.toFixed(2) + '%</div><span class="pill ' + signalClass(item.signal) + '">' + item.signal + '</span></div>';
+        $("scanList").appendChild(row);
+      }
+
+      function addScanErrorRow(symbol) {
+        const row = document.createElement("div");
+        row.className = "card market-row";
+        row.innerHTML = '<div><div class="coin-name">' + symbol.replace("USDT", "/USDT") + '</div><div class="coin-sub">读取失败，稍后重试</div></div><span class="pill gray">--</span>';
         $("scanList").appendChild(row);
       }
 
@@ -583,6 +754,12 @@ const page = String.raw`<!doctype html>
       }
 
       function setup() {
+        applyTheme();
+        if (window.matchMedia) {
+          window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+            if (state.themeMode === "system") applyTheme();
+          });
+        }
         for (const id of ["symbolSelect", "defaultSymbol"]) {
           const select = $(id);
           symbols.forEach((symbol) => {
@@ -619,12 +796,22 @@ const page = String.raw`<!doctype html>
         });
         $("scanLimit").value = state.scanLimit;
         $("refreshInterval").value = state.refreshInterval;
+        $("themeMode").value = state.themeMode;
         $("scanLimit").addEventListener("change", (event) => { state.scanLimit = event.target.value; saveSettings(); });
         $("refreshInterval").addEventListener("change", (event) => { state.refreshInterval = event.target.value; saveSettings(); startTimer(); });
+        $("themeMode").addEventListener("change", (event) => {
+          state.themeMode = event.target.value;
+          saveSettings();
+          applyTheme();
+          requestAnimationFrame(() => analyzeCurrent());
+        });
         $("notifySwitch").classList.toggle("on", state.notify);
         $("notifySwitch").addEventListener("click", () => { state.notify = !state.notify; $("notifySwitch").classList.toggle("on", state.notify); saveSettings(); });
         $("analyzeBtn").addEventListener("click", analyzeCurrent);
-        $("scanPeriod").addEventListener("change", scanMarket);
+        $("scanBtn").addEventListener("click", scanMarket);
+        $("scanPeriod").addEventListener("change", () => {
+          if ($("scanList").children.length) scanMarket();
+        });
         $("addWatchBtn").addEventListener("click", () => {
           let symbol = $("watchInput").value.trim().toUpperCase().replace("/", "");
           if (!symbol) return;
@@ -636,11 +823,14 @@ const page = String.raw`<!doctype html>
         });
         document.querySelectorAll(".nav-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
+            if (btn.classList.contains("active")) return;
             document.querySelectorAll(".nav-btn").forEach((item) => item.classList.remove("active"));
             document.querySelectorAll(".page").forEach((item) => item.classList.remove("active"));
             btn.classList.add("active");
             $("page-" + btn.dataset.page).classList.add("active");
-            if (btn.dataset.page === "scan" && !$("scanList").children.length) scanMarket();
+            if (btn.dataset.page === "scan" && !$("scanList").children.length) {
+              $("scanStatus").textContent = "点击开始扫描，批量分析成交额靠前的交易对。";
+            }
             if (btn.dataset.page === "watch") renderWatch();
           });
         });
