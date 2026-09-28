@@ -694,6 +694,7 @@ async function proxyBinance(url) {
       const target = base + path + (params.toString() ? "?" + params.toString() : "");
       const res = await fetch(target, {
         headers: { "accept": "application/json", "user-agent": "Mozilla/5.0" },
+        signal: timeoutSignal(1800),
         cf: { cacheTtl: type === "klines" ? 8 : 3, cacheEverything: false }
       });
       if (res.ok) {
@@ -727,6 +728,7 @@ async function proxyOkx(url, type, lastError) {
     try {
       const res = await fetch(target, {
         headers: { "accept": "application/json", "user-agent": "Mozilla/5.0" },
+        signal: timeoutSignal(1800),
         cf: { cacheTtl: type === "klines" ? 8 : 3, cacheEverything: false }
       });
       if (!res.ok) continue;
@@ -762,6 +764,7 @@ async function proxyBybit(url, type, lastError) {
     try {
       const res = await fetch(target, {
         headers: { "accept": "application/json", "user-agent": "Mozilla/5.0" },
+        signal: timeoutSignal(1800),
         cf: { cacheTtl: type === "klines" ? 8 : 3, cacheEverything: false }
       });
       if (!res.ok) {
@@ -793,6 +796,15 @@ async function proxyBybit(url, type, lastError) {
 function cleanSymbol(value) {
   const symbol = String(value || "BTCUSDT").toUpperCase().replace(/[^A-Z0-9]/g, "");
   return symbol.endsWith("USDT") ? symbol : symbol + "USDT";
+}
+
+function timeoutSignal(ms) {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
 }
 
 function cleanInterval(value) {
