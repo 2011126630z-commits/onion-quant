@@ -62,7 +62,7 @@ const page = String.raw`<!doctype html>
         width: min(760px, 100%);
         min-height: 100vh;
         margin: 0 auto;
-        padding: 10px 10px calc(78px + env(safe-area-inset-bottom));
+        padding: 10px 10px calc(66px + env(safe-area-inset-bottom));
       }
       .page {
         display: none;
@@ -104,6 +104,57 @@ const page = String.raw`<!doctype html>
         outline: none;
       }
       .select-wide { width: 150px; }
+      .search-wrap {
+        position: relative;
+        margin-bottom: 9px;
+      }
+      .search-wrap > svg {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--muted);
+        pointer-events: none;
+      }
+      #symbolSearch {
+        width: 100%;
+        min-height: 38px;
+        border-radius: 999px;
+        background: var(--panel-2);
+        border: 1px solid transparent;
+        padding: 0 14px 0 34px;
+        font-size: 14px;
+      }
+      #symbolSearch:focus { border-color: var(--line); }
+      .search-suggest {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 20;
+        display: none;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, .14);
+        overflow: hidden;
+      }
+      .search-suggest.open { display: block; }
+      .suggest-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 40px;
+        padding: 0 13px;
+        border: 0;
+        background: transparent;
+        color: var(--text);
+        font-size: 14px;
+      }
+      .suggest-item:active, .suggest-item:hover { background: var(--panel-2); }
+      .suggest-item + .suggest-item { border-top: 1px solid var(--line); }
+      .suggest-item .muted { font-size: 12px; }
       .periods {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -257,29 +308,27 @@ const page = String.raw`<!doctype html>
         border-top: 1px solid var(--line);
         background: var(--nav-bg);
         backdrop-filter: blur(18px);
-        padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+        padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
       }
       .nav-btn {
         display: grid;
-        gap: 3px;
+        gap: 2px;
         place-items: center;
-        min-height: 46px;
+        min-height: 38px;
         border: 0;
         background: transparent;
-        color: var(--muted);
+        color: var(--gray);
+        transition: color 200ms ease;
       }
-      .nav-btn.active {
-        color: var(--green);
-        transform: scale(1.1);
-        animation: navPop 420ms cubic-bezier(.2, 1.45, .28, 1);
+      .nav-btn.active { color: var(--green); }
+      .nav-icon {
+        display: block;
+        line-height: 1;
+        transition: transform 200ms ease;
       }
-      @keyframes navPop {
-        0% { transform: scale(.96); }
-        55% { transform: scale(1.15); }
-        100% { transform: scale(1.1); }
-      }
-      .nav-icon { font-size: 17px; line-height: 1; font-weight: 500; }
-      .nav-text { font-size: 12px; }
+      .nav-icon svg { display: block; }
+      .nav-btn.active .nav-icon { transform: translateY(1.5px); }
+      .nav-text { font-size: 10px; font-weight: 400; letter-spacing: .2px; }
       @media (max-width: 430px) {
         .app { padding-left: 10px; padding-right: 10px; }
         .chart-card { height: 300px; }
@@ -294,6 +343,11 @@ const page = String.raw`<!doctype html>
         <div class="top-row">
           <h1>监控</h1>
           <select id="symbolSelect" class="select-wide"></select>
+        </div>
+        <div class="search-wrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.2-3.2"></path></svg>
+          <input id="symbolSearch" type="text" placeholder="搜索币种，如 BTC 或 BTCUSDT" autocomplete="off" enterkeyhint="search">
+          <div id="searchSuggest" class="search-suggest"></div>
         </div>
         <div class="periods" id="monitorPeriods"></div>
         <div class="card chart-card">
@@ -370,9 +424,9 @@ const page = String.raw`<!doctype html>
               <div class="coin-sub">成交额靠前的交易对</div>
             </div>
             <select id="scanLimit">
-              <option value="10">10</option>
-              <option value="20" selected>20</option>
-              <option value="30">30</option>
+              <option value="20">20</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
             </select>
           </div>
           <div class="card setting-row">
@@ -409,10 +463,10 @@ const page = String.raw`<!doctype html>
     </main>
 
     <nav class="bottom-nav">
-      <button class="nav-btn active" data-page="monitor" type="button"><span class="nav-icon">⌁</span><span class="nav-text">监控</span></button>
-      <button class="nav-btn" data-page="scan" type="button"><span class="nav-icon">≋</span><span class="nav-text">扫描</span></button>
-      <button class="nav-btn" data-page="watch" type="button"><span class="nav-icon">☆</span><span class="nav-text">自选</span></button>
-      <button class="nav-btn" data-page="settings" type="button"><span class="nav-icon">⚙</span><span class="nav-text">我的</span></button>
+      <button class="nav-btn active" data-page="monitor" type="button"><span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5.5v13"></path><rect x="4.5" y="9" width="5" height="6" rx="1"></rect><path d="M17 3.5v17"></path><rect x="14.5" y="6.5" width="5" height="9" rx="1"></rect></svg></span><span class="nav-text">监控</span></button>
+      <button class="nav-btn" data-page="scan" type="button"><span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20.2 20.2l-3.3-3.3"></path><path d="M7.8 11.4l1.7-2.1 1.5 2.8 1.7-2.3"></path></svg></span><span class="nav-text">扫描</span></button>
+      <button class="nav-btn" data-page="watch" type="button"><span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.6l2.3 4.8 5.1.7-3.7 3.6.9 5.1-4.6-2.5-4.6 2.5.9-5.1-3.7-3.6 5.1-.7z"></path></svg></span><span class="nav-text">自选</span></button>
+      <button class="nav-btn" data-page="settings" type="button"><span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"></circle><path d="M5 19.5c1.3-3.1 3.9-4.7 7-4.7s5.7 1.6 7 4.7"></path></svg></span><span class="nav-text">我的</span></button>
     </nav>
 
     <script>
@@ -427,7 +481,7 @@ const page = String.raw`<!doctype html>
       const state = {
         symbol: settings.defaultSymbol || "BTCUSDT",
         interval: settings.interval || "1h",
-        scanLimit: settings.scanLimit || "20",
+        scanLimit: settings.scanLimit || "50",
         refreshInterval: settings.refreshInterval || "30",
         themeMode: settings.themeMode || "system",
         notify: settings.notify !== false,
@@ -690,9 +744,15 @@ const page = String.raw`<!doctype html>
           for (let i = 0; i < candidates.length; i += 5) {
             const batch = candidates.slice(i, i + 5);
             for (const ticker of batch) {
-              $("scanStatus").textContent = "正在扫描 " + ticker.symbol.replace("USDT", "/USDT") + "（" + (done + 1) + "/" + candidates.length + "）";
+              $("scanStatus").textContent = "正在扫描 " + (done + 1) + "/" + candidates.length + "：" + ticker.symbol.replace("USDT", "/USDT");
               try {
-                const klines = await api("klines?market=futures&symbol=" + ticker.symbol + "&interval=" + $("scanPeriod").value + "&limit=120", 2);
+                let klines;
+                try {
+                  klines = await api("klines?market=futures&symbol=" + ticker.symbol + "&interval=" + $("scanPeriod").value + "&limit=120", 2);
+                } catch (firstError) {
+                  await delay(400);
+                  klines = await api("klines?market=futures&symbol=" + ticker.symbol + "&interval=" + $("scanPeriod").value + "&limit=120", 2);
+                }
                 addScanRow(analyzeKlines(ticker.symbol, ticker, klines));
                 success += 1;
               } catch (error) {
@@ -722,7 +782,7 @@ const page = String.raw`<!doctype html>
       function addScanErrorRow(symbol) {
         const row = document.createElement("div");
         row.className = "card market-row";
-        row.innerHTML = '<div><div class="coin-name">' + symbol.replace("USDT", "/USDT") + '</div><div class="coin-sub">读取失败，稍后重试</div></div><span class="pill gray">--</span>';
+        row.innerHTML = '<div><div class="coin-name">' + symbol.replace("USDT", "/USDT") + '</div><div class="coin-sub">重试后仍读取失败</div></div><span class="pill gray">--</span>';
         $("scanList").appendChild(row);
       }
 
@@ -751,6 +811,89 @@ const page = String.raw`<!doctype html>
             row.querySelector(".coin-sub").textContent = "读取失败";
           }
         }
+      }
+
+      const searchState = { list: null, loading: false };
+
+      function fallbackUniverse() {
+        return symbols.map((symbol) => ({ symbol, change: 0 }));
+      }
+
+      async function loadSymbolUniverse() {
+        if (searchState.list || searchState.loading) return;
+        searchState.loading = true;
+        let list = null;
+        const cached = JSON.parse(localStorage.getItem("symbolUniverse") || "null");
+        if (cached && Array.isArray(cached.list) && cached.list.length && Date.now() - Number(cached.at) < 86400000) {
+          list = cached.list;
+        }
+        if (!list) {
+          try {
+            const tickers = await api("tickers?market=futures", 2);
+            list = tickers
+              .filter((t) => t.symbol.endsWith("USDT") && !t.symbol.includes("_"))
+              .sort((a, b) => Number(b.quoteVolume) - Number(a.quoteVolume))
+              .map((t) => ({ symbol: t.symbol, change: Number(t.priceChangePercent || 0) }));
+            if (list.length) localStorage.setItem("symbolUniverse", JSON.stringify({ at: Date.now(), list }));
+          } catch (error) {
+            list = null;
+          }
+        }
+        searchState.list = list && list.length ? list : fallbackUniverse();
+        searchState.loading = false;
+      }
+
+      function filterSymbols(query) {
+        const q = query.trim().toUpperCase().replace("/", "");
+        if (!q) return [];
+        const list = searchState.list || fallbackUniverse();
+        const starts = [];
+        const contains = [];
+        for (const item of list) {
+          if (item.symbol.startsWith(q)) starts.push(item);
+          else if (item.symbol.includes(q)) contains.push(item);
+          if (starts.length >= 8) break;
+        }
+        return starts.concat(contains).slice(0, 8);
+      }
+
+      function ensureOption(select, symbol) {
+        if (!Array.from(select.options).some((option) => option.value === symbol)) {
+          const option = document.createElement("option");
+          option.value = symbol;
+          option.textContent = symbol.replace("USDT", "/USDT");
+          select.appendChild(option);
+        }
+      }
+
+      function renderSuggest(items) {
+        const box = $("searchSuggest");
+        box.replaceChildren();
+        if (!items.length) {
+          box.classList.remove("open");
+          return;
+        }
+        for (const item of items) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "suggest-item";
+          btn.innerHTML = '<span>' + item.symbol.replace("USDT", "/USDT") + '</span><span class="muted ' + pctClass(item.change) + '">' + (item.change >= 0 ? "+" : "") + item.change.toFixed(2) + "%</span>";
+          btn.addEventListener("click", () => selectSearchSymbol(item.symbol));
+          box.appendChild(btn);
+        }
+        box.classList.add("open");
+      }
+
+      function selectSearchSymbol(symbol) {
+        state.symbol = symbol;
+        ensureOption($("symbolSelect"), symbol);
+        ensureOption($("defaultSymbol"), symbol);
+        $("symbolSelect").value = symbol;
+        $("defaultSymbol").value = symbol;
+        $("symbolSearch").value = "";
+        $("searchSuggest").classList.remove("open");
+        saveSettings();
+        analyzeCurrent();
       }
 
       function setup() {
@@ -794,6 +937,30 @@ const page = String.raw`<!doctype html>
           $("symbolSelect").value = state.symbol;
           saveSettings();
         });
+        const searchInput = $("symbolSearch");
+        const closeSuggest = () => $("searchSuggest").classList.remove("open");
+        searchInput.addEventListener("focus", () => {
+          loadSymbolUniverse().then(() => {
+            if (document.activeElement === searchInput) renderSuggest(filterSymbols(searchInput.value));
+          });
+        });
+        searchInput.addEventListener("input", () => {
+          if (!searchState.list) loadSymbolUniverse();
+          renderSuggest(filterSymbols(searchInput.value));
+        });
+        searchInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            const items = filterSymbols(searchInput.value);
+            if (items.length) selectSearchSymbol(items[0].symbol);
+          } else if (event.key === "Escape") {
+            closeSuggest();
+            searchInput.blur();
+          }
+        });
+        document.addEventListener("click", (event) => {
+          if (event.target instanceof Element && !event.target.closest(".search-wrap")) closeSuggest();
+        });
+        if (!["20", "50", "100"].includes(state.scanLimit)) state.scanLimit = "50";
         $("scanLimit").value = state.scanLimit;
         $("refreshInterval").value = state.refreshInterval;
         $("themeMode").value = state.themeMode;
