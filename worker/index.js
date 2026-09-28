@@ -350,7 +350,8 @@ const page = String.raw`<!doctype html>
       }
 
       function api(path) {
-        return fetch("/api/" + path).then((res) => {
+        const joiner = path.includes("?") ? "&" : "?";
+        return fetch("/api/" + path + joiner + "_=" + Date.now()).then((res) => {
           if (!res.ok) throw new Error("行情读取失败");
           return res.json();
         });
