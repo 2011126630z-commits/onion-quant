@@ -745,6 +745,47 @@ async function proxyOkx(url, type, lastError) {
       lastError = error;
     }
   }
+  return proxyBybit(url, type, lastError);
+}
+
+async function proxyBybit(url, type, lastError) {
+  const symbol = cleanSymbol(url.searchParams.get("symbol"));
+  const interval = toBybitInterval(cleanInterval(url.searchParams.get("interval")));
+  const limit = String(Math.min(100, Math.max(20, Number(url.searchParams.get("limit") || 100))));
+  const targets = [];
+  if (type === "ticker") targets.push("https://api.bybit.com/v5/market/tickers?category=linear&symbol=" + symbol);
+  if (type === "tickers") targets.push("https://api.bybit.com/v5/market/tickers?category=linear");
+  if (type === "klines") targets.push("https://api.bybit.com/v5/market/kline?category=linear&symbol=" + symbol + "&interval=" + interval + "&limit=" + limit);
+
+  for (const target of targets) {
+    try {
+      const res = await fetch(target, {
+        headers: { "accept": "application/json", "user-agent": "Mozilla/5.0" },
+        cf: { cacheTtl: type === "klines" ? 8 : 3, cacheEverything: false }
+      });
+      if (!res.ok) {
+        lastError = new Error("bybit " + res.status);
+        continue;
+      }
+      const payload = await res.json();
+      if (payload.retCode !== 0) {
+        lastError = new Error(payload.retMsg || "bybit failed");
+        continue;
+      }
+      let data = payload.result.list || [];
+      if (type === "ticker") data = convertBybitTicker(data[0]);
+      if (type === "tickers") data = data.filter((item) => String(item.symbol || "").endsWith("USDT")).map(convertBybitTicker);
+      if (type === "klines") data = data.map(convertBybitCandle).reverse();
+      return Response.json(data, {
+        headers: {
+          "cache-control": "no-store",
+          "access-control-allow-origin": "*"
+        }
+      });
+    } catch (error) {
+      lastError = error;
+    }
+  }
   return Response.json({ error: lastError ? lastError.message : "proxy failed" }, { status: 502 });
 }
 
@@ -780,6 +821,33 @@ function convertOkxTicker(item) {
 }
 
 function convertOkxCandle(item) {
+  return [
+    Number(item[0]),
+    String(item[1]),
+    String(item[2]),
+    String(item[3]),
+    String(item[4]),
+    String(item[5] || "0")
+  ];
+}
+
+function toBybitInterval(interval) {
+  return { "15m": "15", "30m": "30", "1h": "60", "4h": "240" }[interval] || "60";
+}
+
+function convertBybitTicker(item) {
+  const change = Number(item.price24hPcnt || 0) * 100;
+  return {
+    symbol: String(item.symbol || ""),
+    lastPrice: String(item.lastPrice || "0"),
+    priceChangePercent: String(change),
+    highPrice: String(item.highPrice24h || item.lastPrice || "0"),
+    lowPrice: String(item.lowPrice24h || item.lastPrice || "0"),
+    quoteVolume: String(item.turnover24h || item.volume24h || "0")
+  };
+}
+
+function convertBybitCandle(item) {
   return [
     Number(item[0]),
     String(item[1]),
