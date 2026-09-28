@@ -709,6 +709,42 @@ async function proxyBinance(url) {
       lastError = error;
     }
   }
+  return proxyOkx(url, type, lastError);
+}
+
+async function proxyOkx(url, type, lastError) {
+  const symbol = cleanSymbol(url.searchParams.get("symbol"));
+  const instId = toOkxInstId(symbol);
+  const bar = toOkxBar(cleanInterval(url.searchParams.get("interval")));
+  const limit = String(Math.min(100, Math.max(20, Number(url.searchParams.get("limit") || 100))));
+  const targets = [];
+  if (type === "ticker") targets.push("https://www.okx.com/api/v5/market/ticker?instId=" + instId);
+  if (type === "tickers") targets.push("https://www.okx.com/api/v5/market/tickers?instType=SWAP");
+  if (type === "klines") targets.push("https://www.okx.com/api/v5/market/candles?instId=" + instId + "&bar=" + bar + "&limit=" + limit);
+
+  for (const target of targets) {
+    try {
+      const res = await fetch(target, {
+        headers: { "accept": "application/json", "user-agent": "Mozilla/5.0" },
+        cf: { cacheTtl: type === "klines" ? 8 : 3, cacheEverything: false }
+      });
+      if (!res.ok) continue;
+      const payload = await res.json();
+      if (payload.code !== "0") continue;
+      let data = payload.data;
+      if (type === "ticker") data = convertOkxTicker(data[0]);
+      if (type === "tickers") data = data.filter((item) => item.instId.endsWith("-USDT-SWAP")).map(convertOkxTicker);
+      if (type === "klines") data = data.map(convertOkxCandle).reverse();
+      return Response.json(data, {
+        headers: {
+          "cache-control": "no-store",
+          "access-control-allow-origin": "*"
+        }
+      });
+    } catch (error) {
+      lastError = error;
+    }
+  }
   return Response.json({ error: lastError ? lastError.message : "proxy failed" }, { status: 502 });
 }
 
@@ -719,6 +755,39 @@ function cleanSymbol(value) {
 
 function cleanInterval(value) {
   return ["15m", "30m", "1h", "4h"].includes(value) ? value : "1h";
+}
+
+function toOkxInstId(symbol) {
+  return symbol.replace("USDT", "-USDT-SWAP");
+}
+
+function toOkxBar(interval) {
+  return { "15m": "15m", "30m": "30m", "1h": "1H", "4h": "4H" }[interval] || "1H";
+}
+
+function convertOkxTicker(item) {
+  const last = Number(item.last || 0);
+  const open = Number(item.open24h || last || 1);
+  const change = open ? ((last - open) / open) * 100 : 0;
+  return {
+    symbol: String(item.instId || "").replace("-USDT-SWAP", "USDT"),
+    lastPrice: String(item.last || "0"),
+    priceChangePercent: String(change),
+    highPrice: String(item.high24h || item.last || "0"),
+    lowPrice: String(item.low24h || item.last || "0"),
+    quoteVolume: String(item.volCcy24h || item.vol24h || "0")
+  };
+}
+
+function convertOkxCandle(item) {
+  return [
+    Number(item[0]),
+    String(item[1]),
+    String(item[2]),
+    String(item[3]),
+    String(item[4]),
+    String(item[5] || "0")
+  ];
 }
 
 export default {
