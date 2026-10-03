@@ -1,0 +1,20 @@
+[2026-10-03T10:55:57.486Z] ===== V16.1-RV PREFLIGHT =====
+[2026-10-03T10:55:57.509Z] NOTE  adb_devices: List of devices attached | 10AG1T2NH8004N9        device product:PD2502 model:V2502A device:PD2502 transport_id:5 | emulator-5554          offline transport_id:191
+[2026-10-03T10:55:57.509Z] PASS  设备在线(device 状态)
+[2026-10-03T10:55:57.795Z] NOTE  device_model: V2502A
+[2026-10-03T10:55:57.796Z] NOTE  android: 16 / API 36
+[2026-10-03T10:55:57.796Z] NOTE  resolution_density: Physical size: 1260x2800 | Physical density: 560 Override density: 490
+[2026-10-03T10:55:57.797Z] NOTE  navigation_mode: 2(2=手势)
+[2026-10-03T10:55:57.841Z] NOTE  battery: board temp status: 0 | low bat status: 0 | reverse wl chg status: 0 | status: 2 | level: 10 | temperature: 347 | Capacity level: -1
+[2026-10-03T10:55:57.898Z] NOTE  thermal: Thermal Status: 0 | Temperature{mValue=52.272, mType=0, mName=CPU, mStatus=0} | Temperature{mValue=52.272, mType=1, mName=GPU, mStatus=0}
+[2026-10-03T10:55:58.011Z] NOTE  meminfo_app: (App 未运行)
+[2026-10-03T10:55:58.058Z] NOTE  storage_data: 
+[2026-10-03T10:55:58.117Z] NOTE  installed_apk: versionName=16.1.0-paper versionCode=17
+[2026-10-03T10:55:58.162Z] NOTE  battery_optimization: not-whitelisted(not-whitelisted ⇒ 系统可在 Doze 冻结网络/定时器,属 OS_RESTRICTED)
+[2026-10-03T10:55:58.210Z] NOTE  standby_bucket: 10(10=ACTIVE, 20=WORKING_SET, 30=FREQUENT, 40=RARE, 45=RESTRICTED)
+[2026-10-03T10:55:58.275Z] NOTE  foreground: topResumedActivity=ActivityRecord{38906821 u0 com.ss.android.ugc.aweme/.search.activity.SearchResultActivity t15703 d0}
+[2026-10-03T10:55:58.319Z] FAIL  前台服务在运行  => dumpsys 未找到 PaperForegroundService
+[2026-10-03T10:55:58.761Z] PASS  运行时在回报状态(logcat PaperRuntime status)
+[2026-10-03T10:55:58.762Z] NOTE  runtime_status: {"state":"RUNNING","short_positions":0,"long_positions":0,"open_positions":0,"equity":100,"realized":0,"today_net":0,"loops":0,"last_tick_at":null,"last_error":"MARKET_PROVIDER_BLOCKED","last_closed_candle":null,"market":{"ok":false,"state":"FAILED","provider":null,"consecutive_failures":78,"detail":"fetchTickersWithFailover(...).then is not a function","code":"MARKET_PROVIDER_BLOCKED"},"market_provider":null,"market_state":"FAILED","market_blocked":true,"stalled":false,"mode_label":"Short 0 / Long 0 · 持仓 0"}
+[2026-10-03T10:55:59.093Z] PASS  前台服务常驻通知存在
+[2026-10-03T10:55:59.093Z] PREFLIGHT done: 3 passed, 1 failed

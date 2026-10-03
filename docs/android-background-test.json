@@ -1,0 +1,160 @@
+{
+  "at": "2026-10-03T05:01:47.396Z",
+  "serial": "emulator-5554",
+  "results": [
+    {
+      "name": "前台服务已启动",
+      "ok": true,
+      "detail": "dumpsys 未找到 PaperForegroundService"
+    },
+    {
+      "name": "运行时 WebView 已创建(服务自己承载)",
+      "ok": true,
+      "detail": "10-03 04:58:03.645  8740  8806 I PaperRuntime: [host] 存储模式 indexeddb\r | 10-03 04:58:05.005  8740  8806 I PaperRuntime: status {\"state\":\"RUNNING\",\"short_positions\":0,\"long_positions\":0,\"open_positions\":0,\"equity\":100,\"realized\":0,\"today_net\""
+    },
+    {
+      "name": "运行时开始回报状态",
+      "ok": true,
+      "detail": "10-03 04:58:05.019  8740  8806 I PaperRuntime: notification updated: Short 0 / Long 0 · 持仓 0 · 异常\r | 10-03 04:58:05.035  8740  8806 I PaperRuntime: [host] runtime start: {\"state\":\"RUNNING\",\"equity\":10"
+    },
+    {
+      "name": "Activity 已销毁(不在前台)",
+      "ok": true,
+      "detail": "    topResumedActivity=ActivityRecord{203756602 u0 com.xuji.app.debug/com.xuji.app.MainActivity t398}\r |   ResumedActivity: ActivityRecord{203756602 u0 com.xuji"
+    },
+    {
+      "name": "服务仍在运行(dumpsys)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "Activity 销毁后仍持续收到运行时状态",
+      "ok": true,
+      "detail": "logcat 无新状态"
+    },
+    {
+      "name": "Activity 销毁后运行时仍在心跳(状态持续刷新)",
+      "ok": false,
+      "detail": "null"
+    },
+    {
+      "name": "tick 计数在 Activity 销毁后继续增长",
+      "ok": null,
+      "detail": "{\"before\":0,\"after\":0}"
+    },
+    {
+      "name": "后台运行期间没有崩溃日志",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "重启后运行时重新起来",
+      "ok": true,
+      "detail": "10-03 04:59:20.558  8889  8949 I PaperRuntime: status {\"state\":\"RUNNING\",\"short_positions\":0,\"long_positions\":0,\"open_positions\":0,\"equity\":100,\"realized\":0,\"today_net\":0,\"loops\":0,\"last_tick_at\":null"
+    },
+    {
+      "name": "重启后恢复的是同一账户(权益一致,不是新的 100U)",
+      "ok": false,
+      "detail": "{\"before\":null,\"after\":100}"
+    },
+    {
+      "name": "重启后持仓数量一致",
+      "ok": true,
+      "detail": "{\"before\":null,\"after\":0}"
+    },
+    {
+      "name": "开机恢复路径后服务自行启动并恢复运行时",
+      "ok": false,
+      "detail": "Broadcasting: Intent { act=android.intent.action.BOOT_COMPLETED flg=0x400020 cmp=com.quantmonitor.paper/.BootReceiver }"
+    },
+    {
+      "name": "恢复后未产生重复订单(幂等命中或订单数不变)",
+      "ok": null,
+      "detail": "{\"dupBlocked\":false,\"before\":0,\"after\":null}"
+    },
+    {
+      "name": "开机恢复期间无崩溃",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "开机恢复后仍是同一账户",
+      "ok": null,
+      "detail": "{\"before\":100,\"after\":null}"
+    },
+    {
+      "name": "重开 UI 前服务已在运行(前置条件)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "重开 UI 后运行时仍是同一个(未重建账户)",
+      "ok": false,
+      "detail": "{\"before\":null,\"after\":100,\"fresh_log\":true}"
+    },
+    {
+      "name": "重开 UI 后持仓一致",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "重开 UI 未创建第二个运行时(单实例守卫生效)",
+      "ok": false,
+      "detail": "{\"created_in_ui\":1,\"skip_log\":0}"
+    },
+    {
+      "name": "单实例守卫日志出现(命中已有实例)",
+      "ok": false,
+      "detail": "skip_log=0"
+    }
+  ],
+  "statuses": {
+    "initial": {
+      "state": "RUNNING",
+      "short_positions": 0,
+      "long_positions": 0,
+      "open_positions": 0,
+      "equity": 100,
+      "realized": 0,
+      "today_net": 0,
+      "loops": 0,
+      "last_tick_at": 1791003485028,
+      "last_error": "upstream:http_failed",
+      "last_closed_candle": null,
+      "stalled": false,
+      "mode_label": "Short 0 / Long 0 · 持仓 0"
+    },
+    "after_activity_destroyed": null,
+    "after_process_restart": {
+      "state": "RUNNING",
+      "short_positions": 0,
+      "long_positions": 0,
+      "open_positions": 0,
+      "equity": 100,
+      "realized": 0,
+      "today_net": 0,
+      "loops": 0,
+      "last_tick_at": 1791003560569,
+      "last_error": "upstream:http_failed",
+      "last_closed_candle": null,
+      "stalled": false,
+      "mode_label": "Short 0 / Long 0 · 持仓 0"
+    },
+    "after_boot": null,
+    "after_ui_reopen": {
+      "state": "RUNNING",
+      "short_positions": 0,
+      "long_positions": 0,
+      "open_positions": 0,
+      "equity": 100,
+      "realized": 0,
+      "today_net": 0,
+      "loops": 0,
+      "last_tick_at": 1791003667260,
+      "last_error": "upstream:http_failed",
+      "last_closed_candle": null,
+      "stalled": false,
+      "mode_label": "Short 0 / Long 0 · 持仓 0"
+    }
+  }
+}

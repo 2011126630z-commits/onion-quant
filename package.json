@@ -1,0 +1,18 @@
+{
+  "name": "binance-quant-monitor",
+  "version": "15.0.0",
+  "private": true,
+  "description": "Binance Quant Monitor · Paper Futures Android shell",
+  "scripts": {
+    "build:web": "node tools/build.mjs && node tools/build-android.mjs",
+    "cap:sync": "npx cap sync android",
+    "apk": "cd android && gradlew.bat assembleDebug"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.2"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/core": "^6.2.2"
+  }
+}

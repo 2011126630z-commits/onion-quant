@@ -1,0 +1,14 @@
+﻿{
+  "appId": "com.quantmonitor.paper",
+  "appName": "量化监控",
+  "webDir": "dist/app",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
+

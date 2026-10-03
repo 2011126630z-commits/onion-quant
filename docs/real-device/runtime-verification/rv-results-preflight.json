@@ -1,0 +1,98 @@
+{
+  "phase": "preflight",
+  "at": "2026-10-03T10:55:59.093Z",
+  "passed": 3,
+  "failed": 1,
+  "results": [
+    {
+      "name": "adb_devices",
+      "ok": null,
+      "detail": "List of devices attached\r | 10AG1T2NH8004N9        device product:PD2502 model:V2502A device:PD2502 transport_id:5\r | emulator-5554          offline transport_id:191"
+    },
+    {
+      "name": "设备在线(device 状态)",
+      "ok": true,
+      "detail": "List of devices attached\r\n10AG1T2NH8004N9        device product:PD2502 model:V2502A device:PD2502 transport_id:5\r\nemulator-5554          offline transport_id:191"
+    },
+    {
+      "name": "device_model",
+      "ok": null,
+      "detail": "V2502A"
+    },
+    {
+      "name": "android",
+      "ok": null,
+      "detail": "16 / API 36"
+    },
+    {
+      "name": "resolution_density",
+      "ok": null,
+      "detail": "Physical size: 1260x2800 | Physical density: 560\r Override density: 490"
+    },
+    {
+      "name": "navigation_mode",
+      "ok": null,
+      "detail": "2(2=手势)"
+    },
+    {
+      "name": "battery",
+      "ok": null,
+      "detail": "board temp status: 0 | low bat status: 0 | reverse wl chg status: 0 | status: 2 | level: 10 | temperature: 347 | Capacity level: -1"
+    },
+    {
+      "name": "thermal",
+      "ok": null,
+      "detail": "Thermal Status: 0 | Temperature{mValue=52.272, mType=0, mName=CPU, mStatus=0} | Temperature{mValue=52.272, mType=1, mName=GPU, mStatus=0}"
+    },
+    {
+      "name": "meminfo_app",
+      "ok": null,
+      "detail": "(App 未运行)"
+    },
+    {
+      "name": "storage_data",
+      "ok": null,
+      "detail": ""
+    },
+    {
+      "name": "installed_apk",
+      "ok": null,
+      "detail": "versionName=16.1.0-paper versionCode=17"
+    },
+    {
+      "name": "battery_optimization",
+      "ok": null,
+      "detail": "not-whitelisted(not-whitelisted ⇒ 系统可在 Doze 冻结网络/定时器,属 OS_RESTRICTED)"
+    },
+    {
+      "name": "standby_bucket",
+      "ok": null,
+      "detail": "10(10=ACTIVE, 20=WORKING_SET, 30=FREQUENT, 40=RARE, 45=RESTRICTED)"
+    },
+    {
+      "name": "foreground",
+      "ok": null,
+      "detail": "topResumedActivity=ActivityRecord{38906821 u0 com.ss.android.ugc.aweme/.search.activity.SearchResultActivity t15703 d0}"
+    },
+    {
+      "name": "前台服务在运行",
+      "ok": false,
+      "detail": "dumpsys 未找到 PaperForegroundService"
+    },
+    {
+      "name": "运行时在回报状态(logcat PaperRuntime status)",
+      "ok": true,
+      "detail": "最近无 status 行"
+    },
+    {
+      "name": "runtime_status",
+      "ok": null,
+      "detail": "{\"state\":\"RUNNING\",\"short_positions\":0,\"long_positions\":0,\"open_positions\":0,\"equity\":100,\"realized\":0,\"today_net\":0,\"loops\":0,\"last_tick_at\":null,\"last_error\":\"MARKET_PROVIDER_BLOCKED\",\"last_closed_candle\":null,\"market\":{\"ok\":false,\"state\":\"FAILED\",\"provider\":null,\"consecutive_failures\":78,\"detail\":\"fetchTickersWithFailover(...).then is not a function\",\"code\":\"MARKET_PROVIDER_BLOCKED\"},\"market_provider\":null,\"market_state\":\"FAILED\",\"market_blocked\":true,\"stalled\":false,\"mode_label\":\"Short 0 / Long 0 · 持仓 0\"}"
+    },
+    {
+      "name": "前台服务常驻通知存在",
+      "ok": true,
+      "detail": "StatusBarNotification(pkg=com.quantmonitor.paper user=UserHandle{0} id=1001 tag=null key=0|com.quantmonitor.paper|1001|null|10543 : Notification(channel=paper_r"
+    }
+  ]
+}

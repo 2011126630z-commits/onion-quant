@@ -1,0 +1,47 @@
+V16.1-RV · 浏览器(411px 真机视口)执行版证据
+设备不可用期间(用户指令"现在不用手机跑"),以下相位在 dev-server + 浏览器 411×914 真实渲染下执行;
+全部为页面真实运行态读数(window.__quantUI.state() + DOM/几何),非模拟器桩。
+
+[2026-10-03 19:20-19:35 UTC+8] 环境: dev-server localhost:8790(代理出口可达 Binance REST) · 视口 411×914(同真机 CSS 视口) · debug 页面构建 629 exports
+
+== A. 三页资金一致性(§19/§21/§22/§23) · PASS ==
+- home/paper/kernel 三页登记同一资金的快照: total_equity=100, tradable=100, reserved=0, protected=0, spendable=100
+- caliber 全部 "poolLayers(engine/viewer)(唯一入口)"; parity={ok:true, checked:3}(3 次同版本对比,零分叉)
+- State Store: ui-store-v1.0 · 11 bucket · 0 次拒旧(无旧版本写入)
+
+== B. 500 轮导航压力(§14/§27/§41) · PASS ==
+dev 计数包装开启(localStorage.quant_dev_overlay=1),500 轮 4-tab 切换(25ms 间隔)前后:
+- 活跃 timer: 9 → 8(不增长)
+- window listener: 4 → 4(不增长)
+- canvas 数: 2 → 2(Chart 实例不累积)
+- Paper 引擎实例: 1 → 1(不复制)
+- active page: 1 → 1(无叠页)
+- 内存(JS heap): 25MB → 8MB(GC 后回落,无线性增长)
+- 诊断计数: 0 → 0
+- 请求代际: 取消机制工作(started 171 · aborted 169)
+
+== C. 详情页进出 100 次(§11 WebSocket 泄漏方向) · PASS(累积维度) ==
+100 轮(click 行 → 260ms → 返回 → 200ms):
+- timer 9→8 · listener 4→4 · canvas 2→2 · 引擎 1→1 · 内存 9→11MB(GC 内波动)
+- 说明(如实): 浏览器环境无法直连 Binance WS(wsState=OFF 恒定),因此"WS 订阅数不累积"在页面侧为 0→0 恒真;
+  真实 WS 单订阅/重连不泄漏的页面证据此前已由 nav-stress(500 轮 `__quantWsCount ≤ 1`)覆盖,真机 WS 复测属"待设备"项。
+
+== D. K线全屏进出 100 轮(§13/§42) · PASS ==
+100 轮 dtFullBtn/dtExitFsBtn(各 60ms 间距): 0 次失败(每次进出都真实生效)
+- timer 9→8 · listener 4→4 · canvas 2→2 · 引擎 1→1 · bars 200→200(数据未被破坏) · 内存 10→10MB
+- 结束后 dt-fs 已移除(布局恢复)
+
+== E. 周期竞态 50 轮(§15) · PASS ==
+50 轮快速点击周期按钮(45ms 间隔)→ 等 2.6s 后 active = "1时" = 最后一次选择(旧响应未覆盖)
+
+== F. AI Sheet 30 轮开合(§26/§43 页面部分) · PASS ==
+30 轮 open→close: 0 次失败;结束后 .sheet.open=0(无残留);底栏几何 [12,838,387,64] 前后一致;FAB 状态回归;timer/listener 稳定
+(软键盘相关:浏览器无软键盘 → 键盘遮挡/视口恢复剩真机项,已用 adjustResize 修复,待设备复测)
+
+== G. 横竖屏状态保持(§52) · PASS(视口等价验证) ==
+detail 页 411×914 → 914×411 → 411×914:
+- page=detail / symbol=BTC/USDT / bars=200 / canvas=2 全程保持;引擎实例恒 1(不复制)
+(真机 rotation(settings put system user_rotation)复测属"待设备"项)
+
+== 未在浏览器执行(真机独有,保持 NOT COMPLETED) ==
+锁屏/Doze tick 增长(2-5m/15-30m/1-2h;24h)· Activity finishAndRemoveTask 矩阵 · airplane 断网恢复 · 进程重启恢复 · 软键盘 30-50 轮 · 通知点击深链 · RD-002 真机 After 截图 · BOOT_RESTORE

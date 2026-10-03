@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">量化监控</string>
+    <string name="title_activity_main">量化监控</string>
+    <string name="package_name">com.quantmonitor.paper</string>
+    <string name="custom_url_scheme">com.quantmonitor.paper</string>
+</resources>

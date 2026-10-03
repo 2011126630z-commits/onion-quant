@@ -1,9 +1,0 @@
-{
-  "name": "币安行情检测器",
-  "short_name": "行情检测器",
-  "start_url": "./index.html",
-  "display": "standalone",
-  "background_color": "#071013",
-  "theme_color": "#071013",
-  "icons": []
-}

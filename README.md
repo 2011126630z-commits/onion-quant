@@ -1,0 +1,56 @@
+# onion-quant · Binance AI 量化监控(Paper Only)
+
+个人专用 **Paper Trading** 量化分析终端:真实行情 + 模拟交易(永不真实下单)。
+本仓库 = 源码 + **最新 APK**(固定位置,直接下载)。
+
+## ⬇️ 下载最新 APK
+
+> 点击目录 **`apk/`** → 下载 **`app-latest.apk`** → 传到手机安装(需允许"安装未知来源应用")。
+
+```
+Latest APK:  apk/app-latest.apk
+Version:     v16.2(16.2.0-paper)
+Size:        4.49 MB
+SHA256:      0ceaf92442b51a8738432bf7d9b88c3808ca0aaa05834ba4fd1057455d0d8b3d
+```
+
+- 安装为 **覆盖安装**(`adb install -r` 或直接点 APK),账户/设置/学习数据都会保留。
+- **PAPER ONLY**:无真实 API Key、无真实下单;应用内所有"开仓/平仓"都发生在本地模拟账户。
+
+## 这个 App 是什么
+
+- 安卓 App(WebView 壳 + 本地量化内核):市场行情、K线(实时推送)、Paper 引擎(自动模拟)、风险/资金内核、学习与验证、通知与诊断。
+- 单实例后台运行时(Runtime 由前台服务承载):退出界面/锁屏后模拟引擎继续运行;界面只是观察者与控制台。
+
+## 源码结构(构建方式)
+
+```
+worker/src/           引擎与页面源码(engine/history/paper/ui)
+tools/                构建、测试、真机验收脚本
+android/              Capacitor Android 工程
+dev-server.mjs        本地开发服务器(node dev-server.mjs → http://localhost:8790)
+```
+
+构建与测试:
+
+```bash
+node tools/build.mjs          # 生成 worker/index.js 与页面内联脚本(会做语法校验)
+node tools/run-tests.mjs      # 全量测试(当前 41 套件 / 3918 断言 / 0 失败)
+node tools/build-android.mjs && npx cap sync android
+cd android && gradlew.bat assembleDebug   # APK 输出在 android/app/build/outputs/apk/debug/
+```
+
+APK 发布流程(本仓库约定):`构建 → 测试通过 → 复制到 apk/app-latest.apk → 更新本 README 的版本块 → commit & push`。
+
+## 版本历史(简)
+
+| 版本 | 要点 |
+|---|---|
+| v16.2 | 课堂式手机 UI:黑白闪屏修复、返回状态连续性(滚动逐像素恢复/返回栈)、按钮体系统一 |
+| v16.1 | 真机运行时验收:修复后台运行时行情接线(曾从未推进)、保护池/HWM 持久化、资金语义修正 |
+| v15.x | Android Paper App 收口、后台运行时、归因与存储修复 |
+
+## 说明
+
+- 数据真实性优先:无数据就显示空态,不伪造行情/收益;所有金额来自本地账本。
+- 非商业、个人研究用途;不提供会员/支付/后台。

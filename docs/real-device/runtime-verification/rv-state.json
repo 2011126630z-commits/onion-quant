@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "state": "RUNNING",
+    "short_positions": 0,
+    "long_positions": 0,
+    "open_positions": 0,
+    "equity": 100,
+    "realized": 0,
+    "today_net": 0,
+    "loops": 0,
+    "last_tick_at": null,
+    "last_error": "MARKET_PROVIDER_BLOCKED",
+    "last_closed_candle": null,
+    "market": {
+      "ok": false,
+      "state": "FAILED",
+      "provider": null,
+      "consecutive_failures": 78,
+      "detail": "fetchTickersWithFailover(...).then is not a function",
+      "code": "MARKET_PROVIDER_BLOCKED"
+    },
+    "market_provider": null,
+    "market_state": "FAILED",
+    "market_blocked": true,
+    "stalled": false,
+    "mode_label": "Short 0 / Long 0 · 持仓 0"
+  },
+  "at": 1791024958761
+}
