@@ -3,18 +3,22 @@
 个人专用 **Paper Trading** 量化分析终端:真实行情 + 模拟交易(永不真实下单)。
 本仓库 = 源码 + **最新 APK**(固定位置,直接下载)。
 
-## ⬇️ 下载最新 APK
+## ⬇️ 下载最新 APK(公开仓库,免登录)
 
-> 点击目录 **`apk/`** → 下载 **`app-latest.apk`** → 传到手机安装(需允许"安装未知来源应用")。
+**方式一(推荐,一步直达)**:点这里直接下载 ——
+**https://github.com/2011126630z-commits/onion-quant/releases/latest**
+
+**方式二(固定路径)**:点目录 **`apk/`** → **`app-latest.apk`** → Download。
+
+> 传到手机安装即可(需允许"安装未知来源应用");安装为覆盖安装,账户/设置/学习数据都会保留。
 
 ```
-Latest APK:  apk/app-latest.apk
+Latest APK:  apk/app-latest.apk   (Releases 附件同名 app-latest.apk)
 Version:     v16.2(16.2.0-paper)
-Size:        4.49 MB
+Size:        4.49 MB (4,712,010 bytes)
 SHA256:      0ceaf92442b51a8738432bf7d9b88c3808ca0aaa05834ba4fd1057455d0d8b3d
 ```
 
-- 安装为 **覆盖安装**(`adb install -r` 或直接点 APK),账户/设置/学习数据都会保留。
 - **PAPER ONLY**:无真实 API Key、无真实下单;应用内所有"开仓/平仓"都发生在本地模拟账户。
 
 ## 这个 App 是什么
