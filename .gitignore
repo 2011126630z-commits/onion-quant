@@ -25,10 +25,14 @@ android/local.properties
 # --- 历史误操作产生的杂物文件(只忽略,不删除磁盘内容) ---
 (i-13+k)+'
 console.log(d.slice(0
-m[1])
+m\[1\]\)
 openCloseSheet
 /i
 /x
+tools/_tmp_seam.mjs
+
+# --- 旧 Sites 托管配置(保留在磁盘,不入仓库) ---
+.openai/
 
 # 注意:这里【故意不写】全局 *.apk —— /apk/app-latest.apk 必须可以被提交。
 # 如需再收紧,必须使用 "*.apk" + "!/apk/*.apk" 成对规则。
