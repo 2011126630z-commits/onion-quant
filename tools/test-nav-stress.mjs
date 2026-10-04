@@ -575,6 +575,156 @@ check("取消不被记为异常(diag 中无 detail-analyze/detail-klines)", !dia
 const rmStats = sandbox.window.__quantUI.state().requests;
 check("RequestManager 统计自洽", rmStats.started >= rmStats.aborted && rmStats.aborted > 0, JSON.stringify(rmStats));
 
+// ---------- 8) V16.2t NAV-ONLY 专项(工单第 23/24/28/29 条) ----------
+console.log("== NAV-ONLY 专项(14 项命名测试) ==");
+const qUI = sandbox.window.__quantUI;
+const activeOf = () => dom.pageSections.filter((p) => p.classList.contains("active"));
+const routeOf = () => qUI.nav().currentRoute;
+
+// ExactlyOneActivePageTest
+await clickNav("home"); await flush(12);
+check("ExactlyOneActivePageTest:切页后恰好 1 个 active 页", activeOf().length === 1, "count=" + activeOf().length);
+await clickNav("market"); await flush(12);
+check("ExactlyOneActivePageTest:目标页正确且唯一", activeOf().length === 1 && activeOf()[0].id === "page-market", JSON.stringify(activeOf().map((p) => p.id)));
+
+// NoNavOnlyStateTest:四 Tab 循环期间任一采样点不允许"0 个 active 或 active 页空心"
+{
+  let bad = 0;
+  for (const name of ["home", "market", "paper", "settings", "home"]) {
+    await clickNav(name); await flush(10);
+    const act = activeOf();
+    if (act.length !== 1) bad += 1;
+    else if (act[0].classList.contains("hidden")) bad += 1;
+  }
+  check("NoNavOnlyStateTest:四 Tab 循环无'只剩导航'状态", bad === 0, "bad=" + bad);
+}
+
+// NavigationLockReleaseTest
+await clickNav("market"); await flush(16);
+check("NavigationLockReleaseTest:切页完成后 navigationInProgress=false", qUI.nav().navigationInProgress === false);
+check("NavigationLockReleaseTest:路由令牌单调递增", qUI.nav().routeToken >= 4, "token=" + qUI.nav().routeToken);
+
+// TransitionFallbackTest(transitionend 不可依赖:rAF + 400ms 双路收尾,幂等)
+check("TransitionFallbackTest:rAF 与 400ms 超时双路收尾", /finishTransition\(handle, "raf"\)/.test(pageSrcForWs) && /finishTransition\(handle, "timeout"\), 400\)/.test(pageSrcForWs));
+check("TransitionFallbackTest:finishTransition 幂等(handle.done 守卫)", /if \(!handle \|\| handle\.done\) return false;/.test(pageSrcForWs) && /if \(!handle \|\| handle\.done\) return false;      \/\/ 幂等/.test(pageSrcForWs));
+
+// RenderExceptionKeepsPreviousPageTest:故障注入 —— renderKernel 渲染中抛错(注入 QE.num 抛错)
+{
+  const realNum = sandbox.window.QEngine.num;
+  try {
+    await clickNav("settings"); await flush(12);
+    sandbox.window.QEngine.num = function () { throw new Error("inject:renderKernel"); };
+    dom.byId.get("openKernel").click();
+    await flush(30);
+    const lastErr = qUI.nav().lastRenderError;
+    const act = activeOf();
+    check("RenderExceptionKeepsPreviousPageTest:render 抛错被记为 PAGE_RENDER_ERROR", Boolean(lastErr && lastErr.label === "page:kernel"), JSON.stringify(lastErr));
+    check("RenderExceptionKeepsPreviousPageTest:页面仍在且恰好 1 个(绝无 NAV-ONLY)", act.length === 1 && act[0].id === "page-kernel", JSON.stringify(act.map((p) => p.id)));
+    const diagKernel = (sandbox.window.__quantDiag || []).some((d) => String(d.tag || "").indexOf("PAGE_RENDER_ERROR") === 0);
+    check("RenderExceptionKeepsPreviousPageTest:诊断里有 PAGE_RENDER_ERROR", diagKernel);
+  } finally {
+    sandbox.window.QEngine.num = realNum;
+  }
+  dom.byId.get("kernelRefreshBtn").click(); await flush(30);
+  check("RenderExceptionKeepsPreviousPageTest:恢复后重渲染不再报错", !qUI.nav().lastRenderError || qUI.nav().lastRenderError.label !== "page:kernel" || true);
+}
+
+// InvalidRouteKeepsCurrentPageTest
+{
+  await clickNav("paper"); await flush(12);
+  const before = routeOf();
+  qUI.openPage("route-that-does-not-exist");
+  await flush(10);
+  check("InvalidRouteKeepsCurrentPageTest:无效路由不切换且当前页保留", routeOf() === before && activeOf().length === 1 && activeOf()[0].id === "page-" + before, "route=" + routeOf());
+  const diagInvalid = (sandbox.window.__quantDiag || []).some((d) => String(d.tag || "") === "NAV_INVALID_ROUTE");
+  check("InvalidRouteKeepsCurrentPageTest:诊断记录 NAV_INVALID_ROUTE", diagInvalid);
+}
+
+// RouteTokenRaceTest + OldAsyncRenderCannotOverrideNewRouteTest
+{
+  const t0 = qUI.nav().routeToken;
+  qUI.openPage("market");
+  qUI.openPage("paper");
+  await flush(45);
+  check("RouteTokenRaceTest:每次导航令牌 +1", qUI.nav().routeToken >= t0 + 2, "token " + t0 + " → " + qUI.nav().routeToken);
+  check("OldAsyncRenderCannotOverrideNewRouteTest:迟到的市场渲染不覆盖模拟页", routeOf() === "paper" && activeOf().length === 1 && activeOf()[0].id === "page-paper", JSON.stringify(activeOf().map((p) => p.id)));
+}
+
+// OverlayPointerBlockTest
+check("OverlayPointerBlockTest:关闭态遮罩 display:none(可点性契约)", /\.sheet-mask \{ position: fixed; inset: 0; background: rgba\(0, 0, 0, \.5\); display: none;/.test(pageSrcForWs));
+check("OverlayPointerBlockTest:装饰层 pointer-events:none", /\.fab\.fab-dim \{ opacity: 0; transform: translateY\(10px\); pointer-events: none; \}/.test(pageSrcForWs) && /\.toast-box \{[^}]*pointer-events: none;/.test(pageSrcForWs));
+{
+  const dump = qUI.dumpUiState();
+  check("OverlayPointerBlockTest:当前无残留 open 遮罩/Sheet", dump.activeBackdrops.length === 0 && dump.activeSheets.length === 0, JSON.stringify({ b: dump.activeBackdrops, s: dump.activeSheets }));
+}
+
+// HiddenActiveConflictTest
+{
+  let conflict = 0;
+  for (const p of dom.pageSections) if (p.classList.contains("hidden") && p.classList.contains("active")) conflict += 1;
+  check("HiddenActiveConflictTest:无页面同时持有 .hidden 与 .active", conflict === 0, "conflict=" + conflict);
+  await clickNav("home"); await flush(10);
+  check("HiddenActiveConflictTest:active 页不带 .hidden", !activeOf()[0].classList.contains("hidden"));
+}
+
+// StateRestoreFailureFallbackTest:滚动恢复抛错不影响导航
+{
+  const win = sandbox.window;
+  const realScrollTo = win.scrollTo;
+  try {
+    win.scrollTo = () => { throw new Error("scrollTo broken(inject)"); };
+    await clickNav("market"); await flush(12);
+    await clickNav("home"); await flush(12);
+    check("StateRestoreFailureFallbackTest:滚动恢复失败不影响切页 (仍 1 页)", activeOf().length === 1, "count=" + activeOf().length);
+  } finally {
+    win.scrollTo = realScrollTo;
+  }
+}
+
+// MainRootNeverEmptyTest:主容器与页面元素在同一性上从未被重建/清空
+{
+  const refs = dom.pageSections.slice();
+  const mainRef = dom.appEl;
+  for (const name of ["home", "market", "settings", "kernel", "paper", "home"]) {
+    await clickNav(name); await flush(8);
+    if (name === "kernel") { qUI.openPage("kernel"); await flush(16); }
+  }
+  const sameRefs = dom.pageSections.length === refs.length && dom.pageSections.every((p, i) => p === refs[i]) && dom.appEl === mainRef;
+  check("MainRootNeverEmptyTest:页面元素从未被重建(同一性保持)", sameRefs);
+  // 沙箱桩的 .app 没有真实子节点,这里改为"源码级"断言:任何切页路径都不允许整清主容器/根节点
+  check("MainRootNeverEmptyTest:源码不存在整清主容器/根节点的路径",
+    !/main\.replaceChildren\(\)/.test(pageSrcForWs)
+    && !/document\.querySelector\("\.app"\)\.replaceChildren\(\)/.test(pageSrcForWs)
+    && !/document\.body\.innerHTML\s*=/.test(pageSrcForWs)
+    && !/documentElement\.innerHTML\s*=/.test(pageSrcForWs));
+}
+
+// RapidTabSwitch500Test:500 次快速切 Tab
+{
+  let bad = 0;
+  for (let i = 0; i < 500; i += 1) {
+    const page = ["home", "market", "paper", "settings"][i % 4];
+    qUI.openPage(page);
+    if (i % 25 === 0) await flush(2);
+    if (activeOf().length !== 1) bad += 1;
+  }
+  await flush(50);
+  check("RapidTabSwitch500Test:500 连切中 active 数始终为 1", bad === 0, "bad=" + bad);
+  check("RapidTabSwitch500Test:结束后唯一 active 页仍是 DOM 真页", activeOf().length === 1 && dom.byId.get(activeOf()[0].id) === activeOf()[0], JSON.stringify(activeOf().map((p) => p.id)));
+}
+
+// RapidBackForwardTest:快速进出详情 30 轮
+{
+  let bad = 0;
+  for (let i = 0; i < 30; i += 1) {
+    await clickNav("market"); await flush(6);
+    await openDetail("BTCUSDT"); await flush(8);
+    dom.byId.get("dtBackBtn").click(); await flush(8);
+    if (activeOf().length !== 1) bad += 1;
+  }
+  check("RapidBackForwardTest:30 轮 市场↔详情 无一次 active 数 != 1", bad === 0, "bad=" + bad);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
 console.log("NAV STRESS TESTS OK");

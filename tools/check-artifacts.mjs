@@ -217,7 +217,7 @@ check("V16.2 主题 pre-paint(head 内联脚本:首帧前落主题 + 首屏禁�
 check("V16.2 切页单一动画(pg-fade 双动画已移除)", !/\.pg-fade \{/.test(pageSrc) && !/classList\.add\("active", "pg-fade"\)/.test(pageSrc) && /pageIn\s+160ms/.test(pageSrc));
 check("V16.2 无整页跳转(内部导航一律 setActivePage/router)", !/<a\s+href=/.test(pageSrc) && !/location\.href\s*=/.test(pageSrc) && !/location\.reload\(/.test(pageSrc) && !/location\.assign\(/.test(pageSrc));
 check("V16.2 返回栈接线:进子页记来路 + 统一 goBack + history 哨兵",
-  /nav\.push\(prev, name\)/.test(pageSrc) && /async function goBack\(\)/.test(pageSrc)
+  /nav\.push\(prev, canonical\)/.test(pageSrc) && /async function goBack\(\)/.test(pageSrc)
   && /QE\.backPriority\(\{/.test(pageSrc) && /history\.pushState\(\{ zqtrap: 1 \}/.test(pageSrc)
   && /saveCurrentViewState\(\)/.test(pageSrc) && /restoreScrollAfterReady\(\{/.test(pageSrc));
 check("V16.2 返回按钮全部走 goBack(不再硬编码弹回某页)", (pageSrc.match(/addEventListener\("click", \(\) => \{ void goBack\(\); \}\)/g) || []).length >= 10);
@@ -242,8 +242,14 @@ check("V16.2s 分段状态保持(save/restore 到 navState)", /nav\.save\("marke
 check("V16.2s Accordion 统一组件(开/关同路径 + aria + 0fr→1fr)", /function toggleAccordion\(/.test(pageSrc) && /function bindAccordion\(/.test(pageSrc) && /grid-template-rows: 0fr/.test(pageSrc));
 check("V16.2s 手势状态机(touchcancel→idle / 纵向让位 scroll / 方向锁)", /dtOnTouchCancel/.test(pageSrc) && /mode: "scroll", moved: gesture\.moved/.test(pageSrc) && /gesture\.decided = true/.test(pageSrc));
 check("V16.2s pinch 方向组合锁死(单元测试 F 节)", /pinchFactor\(prevDistance, nextDistance\)/.test(fs.readFileSync(path.join(ROOT, "worker/src/ui/chart.js"), "utf8")) && fs.readFileSync(path.join(ROOT, "tools/test-chart-interaction.mjs"), "utf8").includes("50 轮张开/捏合方向零翻转"));
-check("V16.2s Kernel/Diag/Health 先绘制后重活(afterPaint 包裹)", /afterPaint\(\(\) => \{\s*perfMark\(h, "first_paint"\);\s*void renderKernel\(\)/.test(pageSrc) && /void renderDiag\(\)/.test(pageSrc) && /renderHealth\(await loadHealth\(false\)\)/.test(pageSrc));
+check("V16.2s Kernel/Diag/Health 先绘制后重活(afterPaint 包裹)", /afterPaint\(\(\) => \{\s*perfMark\(h, "first_paint"\);\s*void safeRender\("page:kernel", renderKernel, renderKernel\)/.test(pageSrc) && /safeRender\("page:diag", renderDiag, renderDiag\)/.test(pageSrc) && /renderHealth\(await loadHealth\(false\)\)/.test(pageSrc));
 check("V16.2s 长字段/数字溢出护栏(换行 + 定宽 + 可收缩)", /overflow-wrap: anywhere/.test(pageSrc) && /\.mk-row \.mk-chg \{ width: 76px;/.test(pageSrc) && /\.sys-row \.sys-v \{ font-size: 13px; color: var\(--text-secondary\); text-align: right; overflow-wrap: anywhere; min-width: 0; \}/.test(pageSrc));
+
+// ---- V16.2t NAV-ONLY(点击后只剩底部导航栏)根因修复与加固 ----
+check("V16.2t 根因:正文可见性绝不只靠动画(.page.active 自带 opacity:1/transform:none)", /\.page\.active \{[\s\S]{0,500}?opacity: 1;[\s\S]{0,200}?transform: none;/.test(pageSrc) && /绝不隐形/.test(pageSrc));
+check("V16.2t 路由表唯一化 + 无效路由保留当前页 + 子页父 Tab 高亮", /const ROUTE_TABLE = \[/.test(pageSrc) && /function resolveRoute\(name\)/.test(pageSrc) && /NAV_INVALID_ROUTE/.test(pageSrc) && /route\.kind === "tab" \? route\.route : route\.parent/.test(pageSrc));
+check("V16.2t 导航锁看门狗 + finishTransition 双路幂等 + UI 自恢复", /NAV_LOCK_TIMEOUT/.test(pageSrc) && /finishTransition\(handle, "raf"\)/.test(pageSrc) && /finishTransition\(handle, "timeout"\), 400\)/.test(pageSrc) && /function recoverUiNavigation\(reason\)/.test(pageSrc) && /UI_ROUTE_INVARIANT_FAILED/.test(pageSrc));
+check("V16.2t safeRender 渲染兜底(错误态+重试)与 dumpUiState 观测面", /async function safeRender\(label, fn, retry\)/.test(pageSrc) && /PAGE_RENDER_ERROR:/.test(pageSrc) && /dumpUiState: \(\) => \{/.test(pageSrc) && /mainInnerHTMLLength: mainHtmlLen/.test(pageSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

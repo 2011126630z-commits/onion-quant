@@ -106,7 +106,7 @@ console.log("== 5. 页面接线(非驻留 / 自动收起 / 切币保护 / 关闭
   check("打开时恢复最近会话(不重建 Coin Detail)", /renderChatMessages\(symbol\)/.test(pageSrc) && /chatSessions\.messages\(key\)/.test(pageSrc));
   check("关闭:中断 chat 请求 + 移除在途气泡 + 落库", /function closeChat\(options\)/.test(pageSrc) && /RM\.leave\("chat"\)/.test(pageSrc) && /removeChild\(chatLoadingBubble\)/.test(pageSrc) && /saveChatSessions\(\)/.test(pageSrc));
   check("关闭:只影响 chat 键(后台复核用 paper 键)", /RM\.begin\("paper"\)/.test(pageSrc) && !/RM\.leaveAll\(\)/.test(pageSrc));
-  check("离开 Coin Detail 自动收起", /name !== "detail" && name !== currentPage[\s\S]{0,120}closeChat\(\{ fromNav: true \}\)/.test(pageSrc));
+  check("离开 Coin Detail 自动收起", /canonical !== "detail" && canonical !== prev[\s\S]{0,140}closeChat\(\{ fromNav: true \}\)/.test(pageSrc));
   check("切币保护(禁止用旧币上下文回答)", /chatActiveSymbol !== symbolNow/.test(pageSrc) && /已按当前币种切换会话/.test(pageSrc));
   check("返回手势关闭(而不是退出页面)", /addEventListener\("popstate"/.test(pageSrc) && /closeChat\(\{ fromPop: true \}\)/.test(pageSrc));
   check("下拉关闭手势(松手才关)", /touchend/.test(pageSrc) && /moved > 80/.test(pageSrc));
@@ -118,7 +118,7 @@ console.log("== 5. 页面接线(非驻留 / 自动收起 / 切币保护 / 关闭
 
 console.log("== 6. UI 约束(轻量入口,不喧宾夺主) ==");
 {
-  check("AI 入口是右下角 FAB 且四个主视图可用", /id="chatFab"/.test(pageSrc) && /name === "detail" \|\| name === "home" \|\| name === "market" \|\| name === "paper"/.test(pageSrc));
+  check("AI 入口是右下角 FAB 且四个主视图可用", /id="chatFab"/.test(pageSrc) && /canonical === "detail" \|\| canonical === "home" \|\| canonical === "market" \|\| canonical === "paper"/.test(pageSrc));
   check("FAB 文案就是 AI(不是机器人头像/大块占位)", /<button id="chatFab" class="fab show" type="button" aria-label="AI">AI<\/button>/.test(pageSrc));
   check("不存在常驻 AI 页面(没有第五个导航/没有 page-ai)", !/id="page-ai"/.test(pageSrc) && !/nav-btn[^>]*>\s*<span[^>]*>AI/.test(pageSrc));
   const fabCss = pageSrc.slice(pageSrc.indexOf(".fab"), pageSrc.indexOf(".fab") + 260);

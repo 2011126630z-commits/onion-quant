@@ -32,6 +32,9 @@ export const page = String.raw`<!doctype html>
           requestAnimationFrame(function () {
             requestAnimationFrame(function () { root.classList.remove("preload"); });
           });
+          /* V16.2t:preload 只压制"首帧前"的过渡;rAF 在个别环境下可能不按时触发(后台加载/被节流),
+             这里再加一条超时兜底,确保 preload 一定被摘掉(否则 animation:none 会长期压制入场动画)。 */
+          setTimeout(function () { try { root.classList.remove("preload"); } catch (e) { /* 忽略 */ } }, 400);
         } catch (error) { /* 主题守卫失败不阻塞页面 */ }
       })();
     </script>
@@ -111,8 +114,14 @@ export const page = String.raw`<!doctype html>
       }
       .page.active {
         display: block;
-        /* V16.2:切页只动 opacity/transform,160ms 轻量进入(旧页立即 display:none,
-           新页从 0.4 不透明度轻微上移滑入 —— 背景始终是主题底色,不会露出黑白空帧) */
+        /* V16.2t P0 根因修复("只剩底部导航栏"):正文可见性【绝不能】只靠动画——
+           旧实现基础态 opacity:0 且唯一让它变 1 的是 pageIn 动画;任何"动画没跑"的条件
+           (系统关动画/降低动效/被 html.preload 的 animation:none 压住/动画被打断)
+           都会让 active 页 display:block 却透明度 0:导航条有独立背景仍然可见,
+           正文整片消失。现在:类本身就把页面置为可见(不透明度 1、无位移),
+           动画只做入场装饰;动画被停 = 静态直接显示,绝不隐形。 */
+        opacity: 1;
+        transform: none;
         animation: pageIn 160ms cubic-bezier(.22, .61, .36, 1) both;
         will-change: opacity, transform;
         backface-visibility: hidden;
@@ -122,6 +131,10 @@ export const page = String.raw`<!doctype html>
         from { opacity: 0.4; transform: translateY(6px); }
         to { opacity: 1; transform: translateY(0); }
       }
+      /* 渲染异常兜底块:页面加载失败 + 重试(绝不整页消失) */
+      .page-error { margin: 8px 0 10px; border-color: var(--danger); }
+      .page-error .coin-sub { margin-top: 2px; }
+      .page-error button { margin-top: 8px; }
       .top-row, .controls-row, .market-row, .watch-row, .setting-row {
         display: flex;
         align-items: center;
@@ -1861,10 +1874,38 @@ export const page = String.raw`<!doctype html>
           };
         } catch (error) { return { page: null, error: String((error && error.message) || error) }; }
       }
-      // UI 心跳 + 冻结看守:心跳间隔 > 3s(页面可见)记录 UI_FREEZE(带面包屑与状态快照)
+      // UI 心跳 + 冻结看守 + V16.2t 导航看门狗(每 200ms):
+      //   ① 导航锁:>1500ms 未释放 → NAV_LOCK_TIMEOUT + 强制释放 + UI 自恢复(只动 UI,不改 Runtime);
+      //   ② 内容看门狗:任一时刻必须恰好 1 个 active 页;若 active 页"没在播动画且不透明度过低"
+      //      (NAV_PAGE_INVISIBLE)→ 记录并自恢复。有这两条,即使未来再出现"只剩导航栏"的触发条件,
+      //      页面也会在 ≤200ms 内自动恢复,而不是永久卡死。
       setInterval(() => {
         try {
           if (document.hidden) return;
+          if (typeof navBusy !== "undefined" && navBusy && Date.now() - navBusy.at > 1500) {
+            diagLog("NAV_LOCK_TIMEOUT", new Error("导航锁 " + (Date.now() - navBusy.at) + "ms 未释放 · route=" + navBusy.route));
+            devPerf.note("nav-lock-timeout");
+            navBusy = null;
+            recoverUiNavigation("nav-lock-timeout");
+          }
+          if (typeof currentPage !== "undefined") {
+            const act = (typeof activePages === "function") ? activePages() : [];
+            if (act.length !== 1) {
+              diagLog("NAV_NO_ACTIVE_PAGE", new Error("active=" + act.length + " route=" + currentPage));
+              recoverUiNavigation("active-count:" + act.length);
+            } else {
+              const cs = getComputedStyle(act[0]);
+              let animRunning = false;
+              try {
+                const anims = act[0].getAnimations ? act[0].getAnimations() : [];
+                animRunning = anims.some((a) => a.playState === "running");
+              } catch (error) { animRunning = false; }
+              if (!animRunning && Number(cs.opacity) < 0.5 && String(cs.display) !== "none") {
+                diagLog("NAV_PAGE_INVISIBLE", new Error("opacity=" + cs.opacity + " route=" + currentPage));
+                recoverUiNavigation("page-invisible");
+              }
+            }
+          }
           const freeze = devPerf.beat(Date.now(), perfFreezeSnapshot());
           if (freeze) {
             const last = freeze.breadcrumbs.length ? freeze.breadcrumbs[freeze.breadcrumbs.length - 1] : null;
@@ -3947,15 +3988,10 @@ export const page = String.raw`<!doctype html>
 
       function openHealth() {
         setActivePage("health");
-        // V16.2s:健康检查要走多个上游,先切页绘制,再开始探测
+        // V16.2s:健康检查要走多个上游,先切页绘制,再开始探测;V16.2t:探测/渲染异常 → 页面内错误态
         afterPaint(() => {
-          void (async () => {
-            try {
-              renderHealth(await loadHealth(false));
-            } catch (error) {
-              $("healthStatus").textContent = "健康检查读取失败:" + shortError(error);
-            }
-          })();
+          const probe = async () => { renderHealth(await loadHealth(false)); };
+          void safeRender("page:health", probe, probe);
         });
       }
 
@@ -4915,8 +4951,8 @@ export const page = String.raw`<!doctype html>
         paintDetailFromCache();
         requestAnimationFrame(() => perfMark(handle, "transition"));
         afterPaint(() => perfMark(handle, "first_paint"));
-        // ③ 重活(分析/K线/情报)全部在页面出现之后异步完成
-        await refreshDetail();
+        // ③ 重活(分析/K线/情报)全部在页面出现之后异步完成;抛错只降级为页面内错误态(不整页消失)
+        await safeRender("page:detail", () => refreshDetail(), () => refreshDetail());
         perfMark(handle, "ready");
         return viewState.lastDetail;
       }
@@ -8016,7 +8052,7 @@ export const page = String.raw`<!doctype html>
         // V16.2s:先让页面(含上一次的只读观测数据)绘制,再异步重算——不为"最新数字"卡住转场
         afterPaint(() => {
           perfMark(h, "first_paint");
-          void renderKernel().catch(() => {}).then(() => perfMark(h, "ready"));
+          void safeRender("page:kernel", renderKernel, renderKernel).then(() => perfMark(h, "ready"));
         });
       }
 
@@ -8262,7 +8298,7 @@ export const page = String.raw`<!doctype html>
         requestAnimationFrame(() => perfMark(h, "transition"));
         afterPaint(() => {
           perfMark(h, "first_paint");
-          void renderDiag().catch(() => {}).then(() => perfMark(h, "ready"));
+          void safeRender("page:diag", renderDiag, renderDiag).then(() => perfMark(h, "ready"));
         });
       }
 
@@ -9105,6 +9141,49 @@ export const page = String.raw`<!doctype html>
       const nav = QE.createNavState({ now: () => Date.now() });
       let navRestoreHandle = null;
       let backTrapArmed = 0;
+      // V16.2t NAV-ONLY 加固:导航令牌 / 导航锁(仅 UI)/ 最近有效路由 / 最近渲染错误
+      let navSeq = 0;
+      let navBusy = null;            // { seq, route, prev, at } —— 超过 1500ms 未释放由看门狗强制释放(NAV_LOCK_TIMEOUT)
+      let lastGoodRoute = "home";
+      let lastRoutePrev = null;
+      let lastPageRenderError = null;
+      let lastRecoverAt = 0;
+
+      // ================= V16.2t:唯一路由表(工单第 14/15 条) =================
+      // 单一事实来源:route → 页面元素 / 主 Tab 或子页 / 父级 Tab。所有内部跳转只走 resolveRoute,
+      // 禁止再出现 $( "page-" + name ) 拼接、DOM id / 中文名 / 别名几套名称混用:
+      //   - kind=tab :四个底部主 Tab(home/market/paper/settings)
+      //   - kind=sub :子页,保持父级 Tab 高亮(子页不冒充主 Tab)
+      //   - aliases  :外部输入的别名(如 "mine" → settings),统一在这里翻译
+      const ROUTE_TABLE = [
+        { route: "home", pageId: "page-home", kind: "tab", parent: "home", label: "首页" },
+        { route: "market", pageId: "page-market", kind: "tab", parent: "market", label: "市场" },
+        { route: "paper", pageId: "page-paper", kind: "tab", parent: "paper", label: "模拟" },
+        { route: "settings", pageId: "page-settings", kind: "tab", parent: "settings", label: "我的", aliases: ["mine"] },
+        { route: "detail", pageId: "page-detail", kind: "sub", parent: "market", label: "币种详情" },
+        { route: "kernel", pageId: "page-kernel", kind: "sub", parent: "settings", label: "量化内核" },
+        { route: "diag", pageId: "page-diag", kind: "sub", parent: "settings", label: "系统诊断" },
+        { route: "ntfset", pageId: "page-ntfset", kind: "sub", parent: "settings", label: "通知设置" },
+        { route: "scan", pageId: "page-scan", kind: "sub", parent: "settings", label: "扫描市场" },
+        { route: "watch", pageId: "page-watch", kind: "sub", parent: "settings", label: "自选列表(旧)" },
+        { route: "monitor", pageId: "page-monitor", kind: "sub", parent: "settings", label: "行情监控" },
+        { route: "validation", pageId: "page-validation", kind: "sub", parent: "settings", label: "历史验证" },
+        { route: "backtest", pageId: "page-backtest", kind: "sub", parent: "settings", label: "历史回测" },
+        { route: "walkforward", pageId: "page-walkforward", kind: "sub", parent: "settings", label: "滚动验证" },
+        { route: "ml", pageId: "page-ml", kind: "sub", parent: "settings", label: "机器学习验证" },
+        { route: "dataset", pageId: "page-dataset", kind: "sub", parent: "settings", label: "数据导出" },
+        { route: "health", pageId: "page-health", kind: "sub", parent: "settings", label: "行情健康检查" }
+      ];
+      const ROUTE_BY_NAME = {};
+      const ROUTE_ALIAS = {};
+      for (const entry of ROUTE_TABLE) {
+        ROUTE_BY_NAME[entry.route] = entry;
+        for (const alias of entry.aliases || []) ROUTE_ALIAS[String(alias)] = entry;
+      }
+      function resolveRoute(name) {
+        const key = String(name == null ? "" : name);
+        return ROUTE_BY_NAME[key] || ROUTE_ALIAS[key] || null;
+      }
 
       function saveCurrentViewState() {
         try {
@@ -9146,8 +9225,11 @@ export const page = String.raw`<!doctype html>
         } catch (error) { /* ignore */ }
       }
       function syncNavActive(name) {
-        if (!QE.NAV_TABS.includes(name)) return;
-        document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.dataset.page === name));
+        // V16.2t:子页保持父级 Tab 高亮(工单第 15 条);路由 → 高亮 Tab 全部经路由表解释
+        const route = resolveRoute(name);
+        const tab = route ? (route.kind === "tab" ? route.route : route.parent) : (QE.NAV_TABS.includes(name) ? name : null);
+        if (!tab || !QE.NAV_TABS.includes(tab)) return;
+        document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.dataset.page === tab));
       }
       function anySheetOpen() {
         return ["chatSheet", "closeSheet", "ntfSheet", "themeSheet"].some((id) => {
@@ -9193,32 +9275,177 @@ export const page = String.raw`<!doctype html>
       }
 
       function setActivePage(name) {
+        // ① 路由解析 + 目标校验:无效路由绝不先隐藏当前页(工单第 13 条 / InvalidRouteKeepsCurrentPageTest)
+        const route = resolveRoute(name);
+        if (!route) {
+          diagLog("NAV_INVALID_ROUTE", new Error("未知路由: " + String(name)));
+          devPerf.note("nav-invalid:" + String(name));
+          return false;
+        }
+        const el = $(route.pageId);
+        if (!el) {
+          diagLog("NAV_INVALID_ROUTE", new Error("页面元素不存在: " + route.pageId));
+          devPerf.note("nav-missing:" + route.pageId);
+          return false;
+        }
+        const canonical = route.route;
         const prev = currentPage;
-        if (prev && prev !== name) {
-          saveCurrentViewState();                                  // V16.2:离开前保存视图状态(滚动等)
-          if (QE.isSubPage(name)) nav.push(prev, name);            // 进子页:记来路
-          else nav.reset();                                        // 切主 Tab:清子页轨迹
+        const seq = ++navSeq;
+        navBusy = { seq: seq, route: canonical, prev: prev, at: Date.now() };
+        try {
+          if (prev && prev !== canonical) {
+            lastRoutePrev = prev;
+            saveCurrentViewState();                                // V16.2:离开前保存视图状态(滚动等)
+            if (route.kind === "sub") nav.push(prev, canonical);   // 进子页:记来路
+            else nav.reset();                                      // 切主 Tab:清子页轨迹
+          }
+          if (prev && prev !== canonical) cancelPageRequests(prev);
+          // V18:离开详情页必须关掉实时订阅(进入 100 次也不允许堆出 100 个 socket)
+          // V16.2s:同时复位手势状态机(绝不把半途手势/press 定时器带出详情页)
+          if (canonical !== "detail" && prev === "detail") { dtWsClose(); dtResetGesture(); }
+          // V15 AI Chat 不常驻:离开 Coin Detail 自动收起(不允许悬浮在 Market 上)
+          if (canonical !== "detail" && canonical !== prev && typeof chatIsOpen === "function" && chatIsOpen()) {
+            closeChat({ fromNav: true });
+          }
+          // ② 先激活目标、再隐藏其它页 —— 任何异常都不可能出现"0 个 active 页"的空窗(工单第 3 条铁则)
+          el.classList.add("active");
+          activePages().forEach((p) => { if (p !== el) p.classList.remove("active"); });
+          currentPage = canonical;
+          lastGoodRoute = canonical;
+          syncAppLayer(el);
+          syncNavActive(canonical);                                  // 子页保持父级 Tab 高亮(路由表解释)
+          // V15 AI 入口:轻量 FAB,常驻在四个主视图(需要时点开,不用时完全收起)
+          $("chatFab").classList.toggle("show", canonical === "detail" || canonical === "home" || canonical === "market" || canonical === "paper");
+          restoreViewScroll(canonical);                              // V16.2:两帧后恢复该页滚动位置
+          updateBackTrap();                                          // V16.2:返回手势拦截哨兵
+          // ③ 结构断言(同步);视觉断言(不透明度等动画落定)由 finishTransition 在 +2 帧与 +400ms 兜底执行
+          verifyNavInvariant("switch:" + canonical);
+          scheduleNavFinish(el, seq);
+          return canonical;
+        } catch (error) {
+          diagLog("NAV_SWITCH_ERROR:" + canonical, error);
+          devPerf.note("nav-switch-error:" + canonical);
+          finishTransition({ el: el, seq: seq, done: false, slow: 0 }, "exception");   // finally 语义:异常也必须释放导航锁
+          recoverUiNavigation("switch-exception");
+          return false;
         }
-        if (currentPage && currentPage !== name) cancelPageRequests(currentPage);
-        // V18:离开详情页必须关掉实时订阅(进入 100 次也不允许堆出 100 个 socket)
-        // V16.2s:同时复位手势状态机(绝不把半途手势/press 定时器带出详情页)
-        if (name !== "detail" && currentPage === "detail") { dtWsClose(); dtResetGesture(); }
-        // V15 AI Chat 不常驻:离开 Coin Detail 自动收起(不允许悬浮在 Market 上)
-        if (name !== "detail" && name !== currentPage && typeof chatIsOpen === "function" && chatIsOpen()) {
-          closeChat({ fromNav: true });
+      }
+
+      // ================= V16.2t:导航收尾 / 不变量 / 自恢复(仅 UI 层,绝不触碰 Runtime) =================
+      // transitionend 不可依赖(可能不触发 / 被打断 / 元素被 display:none / 时长为 0):
+      // finishTransition 由"双 rAF(快速检查)"与"400ms 超时兜底"两条路调用,且幂等(调用多次无副作用)。
+      function scheduleNavFinish(el, seq) {
+        const handle = { el: el, seq: seq, done: false, slow: 0 };
+        try {
+          requestAnimationFrame(() => requestAnimationFrame(() => finishTransition(handle, "raf")));
+          handle.slow = setTimeout(() => finishTransition(handle, "timeout"), 400);
+        } catch (error) { finishTransition(handle, "schedule-fail"); }
+      }
+      function finishTransition(handle, reason) {
+        if (!handle || handle.done) return false;      // 幂等
+        handle.done = true;
+        try { if (handle.slow) clearTimeout(handle.slow); } catch (error) { /* ignore */ }
+        if (navBusy && (!handle.seq || navBusy.seq === handle.seq)) navBusy = null;   // 释放 UI 导航锁
+        // 视觉落定校验只对"仍然是最新一次导航"执行:被更快的新导航取代时,由新导航自己的收尾负责
+        if (!handle.seq || handle.seq === navSeq) verifyNavInvariant("settled:" + String(reason || ""));
+        return true;
+      }
+      // 每次 route 完成后的自动检查(工单第 2/7/22 条):
+      //   · 结构项(count==1 / display!=none / visibility!=hidden)在切换后立即查;
+      //   · 视觉落定项(不透明度>=0.99 / 高度>0 / 无残留遮罩)只在 400ms 超时相位查 ——
+      //     160ms 入场动画进行中读取到的中间不透明度(0.4→1)是正常状态,不是故障。
+      // 结构失败:记录 UI_ROUTE_INVARIANT_FAILED 并自恢复;视觉失败(仅在落定后)同样记录并自恢复。
+      function verifyNavInvariant(phase) {
+        try {
+          const label = String(phase || "");
+          const settledVisual = label.indexOf("settled:timeout") === 0;   // 只有超时兜底相位做"视觉已落定"断言
+          const act = activePages();
+          const el = act[0] || null;
+          const problems = [];
+          if (act.length !== 1) problems.push("active_count=" + act.length);
+          if (!el) problems.push("no_active_page");
+          if (el) {
+            const cs = getComputedStyle(el);
+            if (cs.display === "none") problems.push("display_none");
+            if (cs.visibility === "hidden") problems.push("visibility_hidden");
+            if (settledVisual && Number(cs.opacity) < 0.99) problems.push("opacity=" + cs.opacity);
+            if (settledVisual && el.getBoundingClientRect().height < 8) problems.push("height=0");
+          }
+          if (settledVisual && document.elementFromPoint) {
+            const hit = document.elementFromPoint(Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2));
+            if (hit && hit.closest) {
+              const mask = hit.closest(".sheet-mask");
+              if (mask && !mask.classList.contains("open")) problems.push("stale_mask=" + (mask.id || "?"));
+            }
+          }
+          if (problems.length) {
+            diagLog("UI_ROUTE_INVARIANT_FAILED:" + label, new Error(problems.join(",") + " · route=" + currentPage));
+            devPerf.note("invariant-fail:" + problems[0]);
+            recoverUiNavigation("invariant:" + problems[0]);
+            return false;
+          }
+          return true;
+        } catch (error) { return true; }
+      }
+      // UI 故障自恢复(工单第 20/21 条):只清 UI 状态并保底激活一个页面;
+      // 绝不重启 Paper Runtime、绝不 new Engine、绝不整页强刷(会丢状态并可能复制 Runtime)。
+      function recoverUiNavigation(reason) {
+        try {
+          const now = Date.now();
+          if (now - lastRecoverAt < 1500) return false;   // 防恢复风暴
+          lastRecoverAt = now;
+          diagLog("UI_NAV_RECOVER", new Error(String(reason || "")));
+          devPerf.note("nav-recover:" + String(reason || ""));
+          navBusy = null;
+          const pick = (name) => {
+            const r = resolveRoute(name);
+            return r ? $(r.pageId) : null;
+          };
+          const el = pick(currentPage) || pick(lastGoodRoute) || pick("home");
+          if (!el) return false;
+          el.classList.add("active");
+          activePages().forEach((p) => { if (p !== el) p.classList.remove("active"); });
+          const back = resolveRoute(el.id.replace(/^page-/, ""));
+          if (back) { currentPage = back.route; lastGoodRoute = back.route; }
+          syncAppLayer(el);
+          syncNavActive(currentPage);
+          updateBackTrap();
+          return activePages().length === 1;
+        } catch (error) { return false; }
+      }
+      // 渲染入口统一兜底(工单第 10/11 条):render 抛错 → PAGE_RENDER_ERROR 诊断 + 页面内错误态(可重试);
+      // 页面壳保留、导航照常可用 —— 绝不把正文整片消失,也绝不把错误吞掉。
+      async function safeRender(label, fn, retry) {
+        try {
+          return await fn();
+        } catch (error) {
+          if (error && error.name === "AbortError") return null;   // 主动取消不算渲染错误
+          lastPageRenderError = { label: String(label), at: Date.now(), message: String((error && error.message) || error) };
+          diagLog("PAGE_RENDER_ERROR:" + String(label), error);
+          devPerf.note("render-error:" + String(label));
+          showRenderErrorState(String(label), error, retry || fn);
+          return null;
         }
-        currentPage = name;
-        document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
-        const el = $("page-" + name);
-        if (el) { el.classList.add("active"); } else { $("page-home").classList.add("active"); name = "home"; }
-        syncAppLayer(el || $("page-home"));
-        syncNavActive(name);                                       // 返回/深链进入主 Tab 时高亮也要正确
-        // V15 AI 入口:轻量 FAB,常驻在四个主视图(需要时点开,不用时完全收起)
-        $("chatFab").classList.toggle("show", name === "detail" || name === "home" || name === "market" || name === "paper");
-        restoreViewScroll(name);                                   // V16.2:两帧后恢复该页滚动位置
-        updateBackTrap();                                          // V16.2:返回手势拦截哨兵
-        // 不变量:任何时刻恰好一个 .page.active(导航压力测试会校验 100 次切换后仍成立)
-        return name;
+      }
+      function showRenderErrorState(label, error, retry) {
+        try {
+          const host = document.querySelector(".page.active") || document.body;
+          let box = host.querySelector(":scope > .page-error");
+          if (!box) {
+            box = vEl("div", "page-error card");
+            host.insertBefore(box, host.firstChild);
+          }
+          box.replaceChildren();
+          box.appendChild(vEl("div", "coin-name", "页面加载失败 · " + label));
+          box.appendChild(vEl("div", "coin-sub", String((error && error.message) || error).slice(0, 160)));
+          const btn = vEl("button", "sec", "重试");
+          btn.type = "button";
+          btn.addEventListener("click", () => {
+            try { box.remove(); } catch (e) { /* ignore */ }
+            if (typeof retry === "function") void safeRender(label, retry, retry);
+          });
+          box.appendChild(btn);
+        } catch (error2) { /* 错误态自身失败不影响页面其余部分 */ }
       }
 
       function activePages() {
@@ -9306,8 +9533,8 @@ export const page = String.raw`<!doctype html>
           setActivePage("watch");
           void renderWatch();
         });
-        // V16.2s 学习状态:统一 Accordion(开→惰性渲染明细,再点→收起)
-        bindAccordion("learningAcc", "openLearning", () => { void renderLearning(); });
+        // V16.2s 学习状态:统一 Accordion(开→惰性渲染明细,再点→收起);V16.2t:渲染异常 → 页面内错误态
+        bindAccordion("learningAcc", "openLearning", () => { void safeRender("sys:learning", renderLearning, renderLearning); });
         // V19:我的 > 外观(主题 Bottom Sheet)/ 通知(设置子页入口)
         $("openThemeSheet").addEventListener("click", openThemeSheet);
         $("themeSheetClose").addEventListener("click", closeThemeSheet);
@@ -9418,7 +9645,7 @@ export const page = String.raw`<!doctype html>
         $("pfExportBtn").addEventListener("click", () => exportPaperRecords("csv"));
         $("resetPaperBtn").addEventListener("click", () => { void resetPaperAccount(); });
         // V16.2s 系统状态:统一 Accordion —— 点开(惰性渲染真实数据),再点立即收起(修复"展开后不能收回")
-        bindAccordion("sysAcc", "openSysStatus", () => { void renderSysStatus(); });
+        bindAccordion("sysAcc", "openSysStatus", () => { void safeRender("sys:status", renderSysStatus, renderSysStatus); });
         // V16:量化内核(只读观测)/ 系统诊断(黑匣子)/ 开发用性能浮层(默认关闭)
         $("openKernel").addEventListener("click", openKernel);
         $("kernelBackBtn").addEventListener("click", () => { void goBack(); });
@@ -9543,6 +9770,49 @@ export const page = String.raw`<!doctype html>
               sub_ms: dtChart.subMs
             }
           }),
+          // V16.2t NAV-ONLY 专项观测(工单第 1/26 条):导航态与页面可见性快照,只读
+          nav: () => ({
+            currentRoute: currentPage,
+            previousRoute: lastRoutePrev,
+            lastGoodRoute: lastGoodRoute,
+            navigationInProgress: Boolean(navBusy),
+            navLockAgeMs: navBusy ? (Date.now() - navBusy.at) : 0,
+            routeToken: navSeq,
+            lastRenderError: lastPageRenderError
+          }),
+          dumpUiState: () => {
+            try {
+              const act = activePages();
+              const all = [...document.querySelectorAll(".page")].map((p) => {
+                const cs = getComputedStyle(p);
+                return { id: p.id, display: cs.display, visibility: cs.visibility, opacity: Number(cs.opacity), hidden: p.hidden, pointerEvents: cs.pointerEvents, transform: cs.transform, zIndex: cs.zIndex };
+              });
+              const main = document.querySelector("main") || document.querySelector(".app");
+              const mainKids = main && main.children ? main.children.length : 0;
+              const mainHtmlLen = main && typeof main.innerHTML === "string" ? main.innerHTML.length : 0;
+              return {
+                currentRoute: currentPage,
+                previousRoute: lastRoutePrev,
+                navigationInProgress: Boolean(navBusy),
+                transitionState: navBusy ? "in_flight" : "idle",
+                routeToken: navSeq,
+                activePageId: act[0] ? act[0].id : null,
+                activePageCount: act.length,
+                mainElementExists: Boolean(main),
+                mainChildCount: mainKids,
+                mainInnerHTMLLength: mainHtmlLen,
+                allPages: all,
+                activeOverlays: [...document.querySelectorAll(".sheet.open, .v-overlay.open, #dtChartCard.dt-fs")].map((e) => e.id || e.className),
+                activeSheets: [...document.querySelectorAll(".sheet.open")].map((e) => e.id),
+                activeBackdrops: [...document.querySelectorAll(".sheet-mask.open")].map((e) => e.id),
+                bodyClass: document.body.className,
+                rootClass: document.documentElement.className,
+                theme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
+                lastRenderError: lastPageRenderError,
+                navLockAgeMs: navBusy ? (Date.now() - navBusy.at) : 0
+              };
+            } catch (error) { return { error: String((error && error.message) || error) }; }
+          },
           // V14.5:运行时观测接口(供压力测试/真机诊断读取真实运行态)
           loopTick: (options) => paperLoopTick({ force: true, ...(options || {}) }),
           backgroundStats: () => backgroundWorkerStats(),
@@ -9587,10 +9857,22 @@ export const page = String.raw`<!doctype html>
       }
 
       async function ensurePage(name) {
-        if (name === "home") { await renderHome(); return; }
-        if (name === "market") { await renderMarket(false); return; }
-        if (name === "paper") { await renderPaperPage(); return; }
-        if (name === "detail") { await refreshDetail(); return; }
+        // V16.2t:导航令牌守卫 + 渲染兜底 —— 旧路由的迟到渲染不再执行;渲染抛错只降级为"页面内错误态",
+        // 绝不 reject 出链(调用方的 .catch 只是双保险)。
+        const seq = navSeq;
+        const route = resolveRoute(name);
+        const label = route ? route.route : String(name);
+        const run = () => {
+          if (name === "home") return renderHome();
+          if (name === "market") return renderMarket(false);
+          if (name === "paper") return renderPaperPage();
+          if (name === "detail") return refreshDetail();
+          return Promise.resolve(null);
+        };
+        return safeRender("page:" + label, async () => {
+          if (navSeq !== seq) return null;      // 导航已换代:旧异步渲染到此为止
+          return run();
+        }, run);
       }
 
       async function renderMarketSearch() {

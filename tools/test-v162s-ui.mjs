@@ -214,12 +214,33 @@ check("返回不等网络(goBack 无 await ensurePage)", (() => {
   const fn = pageSrc.slice(pageSrc.indexOf("async function goBack()"), pageSrc.indexOf("async function goBack()") + 900);
   return !/await ensurePage/.test(fn) && /afterPaint\(\(\) => \{/.test(fn);
 })());
-check("详情页 Shell 先行(切页→缓存预绘→再取数据)", /paintDetailFromCache\(\)/.test(pageSrc) && /await refreshDetail\(\);/.test(pageSrc.slice(pageSrc.indexOf("async function openDetail"), pageSrc.indexOf("async function openDetail") + 2200)));
+check("详情页 Shell 先行(切页→缓存预绘→再取数据)", /paintDetailFromCache\(\)/.test(pageSrc) && /safeRender\("page:detail", \(\) => refreshDetail\(\)/.test(pageSrc.slice(pageSrc.indexOf("async function openDetail"), pageSrc.indexOf("async function openDetail") + 2600)));
 check("重复点击去重(同币 1.2s 内不重复建页/发请求)", /Date\.now\(\) - viewState\.detailLoadingAt < 1200/.test(pageSrc));
 check("重复点击当前 Tab = 回顶部(不重跑全量渲染)", /if \(page === currentPage\) \{/.test(pageSrc) && /window\.scrollTo\(\{ top: 0, behavior: "smooth" \}\)/.test(pageSrc));
 // K线缓存与跨币种修复
 check("K线缓存(symbol:interval 键,上限 12)", /viewState\.klinesCache\.set\(seriesKey, fetched\.slice\(-260\)\)/.test(pageSrc) && /viewState\.klinesCache\.size > 12/.test(pageSrc));
 check("跨币种不再按时间戳合并(序列键守卫)", /const sameSeries = dtChart\.seriesKey === seriesKey;/.test(pageSrc) && /dtChart\.seriesKey = seriesKey;/.test(pageSrc) && /if \(!sameSeries\) dtChart\.vp = null;/.test(pageSrc));
+
+console.log("== E. NAV-ONLY 加固(源码不变式,对应工单第 1-31 条) ==");
+check("路由表唯一化(route→pageId/kind/parent/别名)", /const ROUTE_TABLE = \[/.test(pageSrc) && /function resolveRoute\(name\)/.test(pageSrc) && /kind: "tab"/.test(pageSrc) && /kind: "sub"/.test(pageSrc) && /aliases: \["mine"\]/.test(pageSrc));
+check("页面可见性不再只靠动画(.page.active 自带 opacity:1 与 transform:none)", /\.page\.active \{[\s\S]{0,500}?opacity: 1;[\s\S]{0,200}?transform: none;/.test(pageSrc) && /动画被停 = 静态直接显示,绝不隐形/.test(pageSrc));
+check("preload 释放有超时兜底(rAF 可能不触发)", /setTimeout\(function \(\) \{ try \{ root\.classList\.remove\("preload"\); \} catch \(e\) \{ \/\* 忽略 \*\/ \} \}, 400\);/.test(pageSrc));
+check("切页先激活后隐藏(任何异常都不出现 0 active 空窗)", /el\.classList\.add\("active"\);\s*\n\s*activePages\(\)\.forEach\(\(p\) => \{ if \(p !== el\) p\.classList\.remove\("active"\); \}\)/.test(pageSrc));
+check("无效路由保留当前页(先验目标元素存在,绝不先隐藏)", /NAV_INVALID_ROUTE/.test(pageSrc) && /const el = \$\(route\.pageId\);\s*\n\s*if \(!el\) \{/.test(pageSrc));
+check("导航锁看门狗(>1500ms → NAV_LOCK_TIMEOUT + 强制释放)", /NAV_LOCK_TIMEOUT/.test(pageSrc) && /Date\.now\(\) - navBusy\.at > 1500/.test(pageSrc));
+check("finishTransition:rAF+400ms 双路 + 幂等 + 只对最新导航做视觉落定", /finishTransition\(handle, "raf"\)/.test(pageSrc) && /finishTransition\(handle, "timeout"\), 400\)/.test(pageSrc) && /if \(!handle \|\| handle\.done\) return false;\s*\/\/ 幂等/.test(pageSrc) && /handle\.seq === navSeq\) verifyNavInvariant\("settled:"/.test(pageSrc));
+check("不变量校验:结构任意相位 / 视觉仅 settled:timeout(160ms 动画不被误判)", /const settledVisual = label\.indexOf\("settled:timeout"\) === 0;/.test(pageSrc) && /UI_ROUTE_INVARIANT_FAILED/.test(pageSrc));
+check("recoverUiNavigation 只动 UI(不 reload / 不重启引擎 / 不 new Engine)", (() => {
+  const i = pageSrc.indexOf("function recoverUiNavigation(reason)");
+  const body = pageSrc.slice(i, i + 1400);
+  return /activePages\(\)\.forEach/.test(body) && !/location\.reload/.test(body) && !/createPaperEngine|new Engine/.test(body);
+})());
+check("safeRender + PAGE_RENDER_ERROR + 页面内错误态(带重试)", /async function safeRender\(label, fn, retry\)/.test(pageSrc) && /"PAGE_RENDER_ERROR:" \+ String\(label\)/.test(pageSrc) && /"page-error card"/.test(pageSrc) && /"页面加载失败 · "/.test(pageSrc) && /vEl\("button", "sec", "重试"\)/.test(pageSrc));
+check("渲染入口全部走 safeRender(四 Tab + 内核/诊断/健康/系统状态/学习/详情)", /safeRender\("page:" \+ label/.test(pageSrc) && /safeRender\("page:kernel"/.test(pageSrc) && /safeRender\("page:diag"/.test(pageSrc) && /safeRender\("page:health"/.test(pageSrc) && /safeRender\("sys:status"/.test(pageSrc) && /safeRender\("sys:learning"/.test(pageSrc) && /safeRender\("page:detail"/.test(pageSrc));
+check("dumpUiState 接入观测面(工单字段齐全)", /dumpUiState: \(\) => \{/.test(pageSrc) && /mainInnerHTMLLength: mainHtmlLen/.test(pageSrc) && /activeBackdrops:/.test(pageSrc) && /lastRenderError: lastPageRenderError/.test(pageSrc));
+check("子页保持父级 Tab 高亮(路由表 parent 解释)", /const tab = route \? \(route\.kind === "tab" \? route\.route : route\.parent\)/.test(pageSrc));
+check("旧路由迟到渲染被导航令牌拦截", /if \(navSeq !== seq\) return null;/.test(pageSrc));
+check("内容看门狗(NAV_NO_ACTIVE_PAGE / NAV_PAGE_INVISIBLE → 自恢复)", /NAV_NO_ACTIVE_PAGE/.test(pageSrc) && /NAV_PAGE_INVISIBLE/.test(pageSrc) && /recoverUiNavigation\("page-invisible"\)/.test(pageSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
