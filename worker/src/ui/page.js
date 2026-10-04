@@ -36,6 +36,54 @@ export const page = String.raw`<!doctype html>
              这里再加一条超时兜底,确保 preload 一定被摘掉(否则 animation:none 会长期压制入场动画)。 */
           setTimeout(function () { try { root.classList.remove("preload"); } catch (e) { /* 忽略 */ } }, 400);
         } catch (error) { /* 主题守卫失败不阻塞页面 */ }
+        /* V16.2w P0 启动护盾②:全局错误可见化 + 最小导航兜底 + 启动超时看守。
+           真机 P0 故障(首页全 -- / 点击底部导航无反应 / 数据永不 hydrate)的机制是:
+           主脚本在模块级被一次未守卫的存储读取(残留非法 JSON 或 WebView 存储被拒)抛死,
+           之后【所有】监听器与定时器都未注册 —— 页面看着"打开了",实际完全是死页面。
+           本护盾不依赖主脚本:即使主脚本整段死亡,导航仍可切换、故障仍会显示出来(不静默)。 */
+        var BOOT = window.__quantBoot = window.__quantBoot || { started_at: Date.now(), stage: "head_start", ui_ready: false, nav_switches: 0, breadcrumbs: [], errors: [], storage_healed: [] };
+        window.__quantShowBootBanner = function (reason) {
+          try { BOOT.banner_reason = String(reason || BOOT.stage); } catch (e) { /* 忽略 */ }
+          try { var el = document.getElementById("bootBanner"); if (el) el.classList.remove("hidden"); } catch (e) { /* 忽略 */ }
+        };
+        window.addEventListener("error", function (event) {
+          try {
+            BOOT.errors.push({ stage: BOOT.stage || "script", error: String((event && (event.message || (event.error && event.error.message))) || "uncaught error"), stack: String((event && event.error && event.error.stack) || "").slice(0, 1200), at: Date.now() });
+            if (BOOT.errors.length > 30) BOOT.errors.shift();
+            BOOT.fatal = true;
+            window.__quantShowBootBanner("uncaught");
+          } catch (e) { /* 记录失败也不许抛 */ }
+        });
+        window.addEventListener("unhandledrejection", function (event) {
+          try {
+            var r = event && event.reason;
+            BOOT.errors.push({ stage: BOOT.stage || "promise", error: String((r && r.message) || r || "unhandledrejection"), stack: String((r && r.stack) || "").slice(0, 1200), at: Date.now() });
+            if (BOOT.errors.length > 30) BOOT.errors.shift();
+          } catch (e) { /* 忽略 */ }
+        });
+        document.addEventListener("click", function (event) {
+          try {
+            var t = event.target;
+            if (!t) return;
+            var btn = (t.classList && t.classList.contains("nav-btn")) ? t : (t.closest ? t.closest(".nav-btn") : null);
+            if (!btn) return;
+            if (window.__quantNavOwned) return;   // 主脚本已接管导航:兜底退场(保持单一导航处理器)
+            var page = (btn.dataset && btn.dataset.page) || btn.getAttribute("data-page");
+            var target = page ? document.getElementById("page-" + page) : null;
+            if (!target) return;
+            var pages = document.querySelectorAll(".page");
+            for (var i = 0; i < pages.length; i += 1) pages[i].classList.remove("active");
+            target.classList.add("active");
+            var btns = document.querySelectorAll(".nav-btn");
+            for (var j = 0; j < btns.length; j += 1) btns[j].classList.toggle("active", btns[j] === btn);
+            BOOT.stage = "fallback_nav:" + page;
+            BOOT.fallback_nav_used = (BOOT.fallback_nav_used || 0) + 1;
+            window.__quantShowBootBanner("fallback_nav");
+          } catch (e) { /* 兜底失败也不许再抛 */ }
+        });
+        setTimeout(function () {
+          try { if (!window.__quantBoot || !window.__quantBoot.ui_ready) window.__quantShowBootBanner("boot_timeout"); } catch (e) { /* 忽略 */ }
+        }, 8000);
       })();
     </script>
     <style>
@@ -651,6 +699,13 @@ export const page = String.raw`<!doctype html>
         color: var(--red); font-size: 12px; text-align: center;
       }
       .offline-bar.hidden { display: none; }
+      /* V16.2w P0:启动异常横幅(top 层;z-index 高于 offline-bar;默认可点关闭,不拦截底部导航) */
+      #bootBanner {
+        position: fixed; left: 0; right: 0; top: 0; z-index: 85;
+        background: #7a2c2c; color: #fff; font-size: 12.5px; line-height: 1.4;
+        padding: calc(6px + env(safe-area-inset-top)) 12px 6px; text-align: center;
+      }
+      #bootBanner.hidden { display: none; }
       .toast-box { position: fixed; left: 0; right: 0; bottom: calc(102px + env(safe-area-inset-bottom)); z-index: 80; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
       .toast {
         background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
@@ -933,6 +988,8 @@ export const page = String.raw`<!doctype html>
     </style>
   </head>
   <body>
+    <!-- V16.2w P0:启动异常必须可见(不静默)。默认隐藏;仅在启动失败/超时/兜底导航时显示,点击可关闭 -->
+    <div id="bootBanner" class="hidden" role="status" onclick="this.classList.add('hidden')">启动异常 · 部分功能可能不可用(详情:我的 → 诊断,点此关闭)</div>
     <main class="app">
       <section id="page-monitor" class="page">
         <div class="top-row">
@@ -1538,6 +1595,10 @@ export const page = String.raw`<!doctype html>
           <h2 style="margin-bottom:6px">关键错误(资金 / 账本 / 崩溃)</h2>
           <div id="diagP0List"></div>
         </div>
+        <div class="card" id="diagBootCard" style="margin-bottom:10px">
+          <h2 style="margin-bottom:6px">启动序列 · Boot Status</h2>
+          <div id="diagBootBox"></div>
+        </div>
         <div class="card" id="diagUniverseCard" style="margin-bottom:10px">
           <h2 style="margin-bottom:6px">宇宙健康 · Universe Health</h2>
           <div id="diagUniverseBox"></div>
@@ -1819,6 +1880,36 @@ export const page = String.raw`<!doctype html>
 
     <!--__QE_BUNDLE__-->
     <script>
+      // ===== V16.2w P0 启动护盾①:存储读取/启动步骤异常永不静默,单点失败不得杀死整个 UI =====
+      // 真机 P0 复现结论(工具:tools/test-device-boot.mjs):模块级一次未守卫的 JSON.parse(localStorage)
+      // 抛死 → 之后所有 addEventListener/渲染/定时器全部未注册 → 首页全 --、导航点击无反应、永不 hydrate。
+      const BOOT = window.__quantBoot = window.__quantBoot || { started_at: Date.now(), stage: "script_start", ui_ready: false, nav_switches: 0, breadcrumbs: [], errors: [], storage_healed: [] };
+      function bootStage(stage) { try { BOOT.stage = stage; BOOT.last_stage_at = Date.now(); } catch (error) { /* 护盾自身不影响启动 */ } }
+      function bootFail(where, error) {
+        try {
+          const rec = { stage: String(where), error: String((error && error.message) || error), stack: String((error && error.stack) || "").slice(0, 1200), at: Date.now() };
+          BOOT.stage = "BOOT_FAILED:" + where;
+          BOOT.last_stage_at = rec.at;
+          BOOT.errors.push(rec);
+          if (BOOT.errors.length > 30) BOOT.errors.shift();
+          // storage_* 属于"已自愈/已降级"的软故障:记录进诊断(Boot Status),但不点亮横幅(功能无损)
+          if (!/^storage_/.test(rec.stage) && typeof window.__quantShowBootBanner === "function") window.__quantShowBootBanner(rec.stage);
+        } catch (error2) { /* 记录失败也不许抛 */ }
+      }
+      function lsGetRaw(key) { try { return window.localStorage.getItem(key); } catch (error) { bootFail("storage_read:" + key, error); return null; } }
+      function lsGetJson(key, fallback) {
+        const raw = lsGetRaw(key);
+        if (raw == null) return fallback;
+        try { return JSON.parse(raw); }
+        catch (error) {
+          bootFail("storage_corrupt:" + key, error);
+          try { window.localStorage.removeItem(key); } catch (error2) { /* 只读存储 */ }
+          try { BOOT.storage_healed.push({ key: key, reason: "corrupt_json", at: Date.now() }); } catch (error3) { /* 忽略 */ }
+          return fallback;
+        }
+      }
+      function lsSetJson(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); return true; } catch (error) { bootFail("storage_write:" + key, error); return false; } }
+      bootStage("storage_ready");
       const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT"];
       const periods = [
         ["1m", "1分"],
@@ -1829,7 +1920,7 @@ export const page = String.raw`<!doctype html>
         ["4h", "4时"],
         ["1d", "1天"]
       ];
-      const settings = JSON.parse(localStorage.getItem("quantSettings") || "{}");
+      const settings = (() => { const v = lsGetJson("quantSettings", null); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; })();
       const state = {
         symbol: settings.defaultSymbol || "BTCUSDT",
         interval: settings.interval || "1h",
@@ -1837,7 +1928,11 @@ export const page = String.raw`<!doctype html>
         refreshInterval: settings.refreshInterval || "30",
         themeMode: settings.themeMode || "dark",
         notify: settings.notify !== false,
-        watch: JSON.parse(localStorage.getItem("watchSymbols") || '["BTCUSDT","ETHUSDT"]'),
+        watch: (() => {
+          const v = lsGetJson("watchSymbols", null);
+          const arr = Array.isArray(v) ? v.map((x) => String(x == null ? "" : x).toUpperCase().replace(/[^A-Z0-9]/g, "")).filter((s) => s.length >= 6 && s.length <= 24 && s.endsWith("USDT")) : null;
+          return arr || ["BTCUSDT", "ETHUSDT"];
+        })(),
         timer: null,
         analyzing: false,
         scanning: false,
@@ -1968,14 +2063,14 @@ export const page = String.raw`<!doctype html>
       document.addEventListener("pointercancel", clearPressed, { passive: true, capture: true });
 
       function saveSettings() {
-        localStorage.setItem("quantSettings", JSON.stringify({
+        lsSetJson("quantSettings", {
           defaultSymbol: state.symbol,
           interval: state.interval,
           scanLimit: state.scanLimit,
           refreshInterval: state.refreshInterval,
           themeMode: state.themeMode,
           notify: state.notify
-        }));
+        });
       }
 
       // api():失败时保留 HTTP 状态与上游真实原因(不再统一成"行情读取失败")
@@ -2598,7 +2693,7 @@ export const page = String.raw`<!doctype html>
         if (searchState.list || searchState.loading) return;
         searchState.loading = true;
         let list = null;
-        const cached = JSON.parse(localStorage.getItem("symbolUniverse") || "null");
+        const cached = lsGetJson("symbolUniverse", null);
         if (cached && Array.isArray(cached.list) && cached.list.length && Date.now() - Number(cached.at) < 86400000) {
           list = cached.list;
         }
@@ -4565,7 +4660,13 @@ export const page = String.raw`<!doctype html>
             const eng = QE.createPaperEngine({
               store: paperStoreAdapter(store),
               now: () => Date.now(),
-              deviceId: "web-" + (localStorage.getItem("deviceId") || (() => { const id = "dev" + Math.random().toString(36).slice(2, 8); localStorage.setItem("deviceId", id); return id; })()),
+              deviceId: (() => {
+                const existing = lsGetRaw("deviceId");
+                if (existing) return "web-" + existing;
+                const id = "dev" + Math.random().toString(36).slice(2, 8);
+                try { window.localStorage.setItem("deviceId", id); } catch (error) { bootFail("storage_write:deviceId", error); }
+                return "web-" + id;
+              })(),
               riskCheck: (ctx) => QE.evaluateRisk({ ...ctx, now: Date.now(), mode: ctx.mode, todayStart: new Date().toISOString().slice(0, 10) }),
               fetchKlines: async (symbol, interval, limit) => QE.normalizeKlines(await api("klines?market=futures&symbol=" + symbol + "&interval=" + interval + "&limit=" + limit, 1, 8000), interval),
               // V14.4:开启利润保护与回撤控制(未注入时行为与 V14.3 完全一致)
@@ -4594,7 +4695,17 @@ export const page = String.raw`<!doctype html>
         return QE.homeViewModel({ snapshot: { state: s } }).state_label;
       }
 
+      // V16.2w P0:启动即给占位(不再让首页长期停留在静态 "--");真实数据到达后由 renderHome 覆盖
+      function homeBootPlaceholders() {
+        try {
+          const ids = ["hmTodayPnl", "hmEquity", "hmAllTime", "hmShortEq", "hmShortToday", "hmLongEq", "hmLongToday", "hmAllocation", "hmPositions", "hmTrades", "hmRisk", "hmState", "hmLearning"];
+          for (const id of ids) { const el = $(id); if (el && (!el.textContent || el.textContent.trim() === "--")) el.textContent = "加载中…"; }
+        } catch (error) { /* 占位失败不阻塞启动 */ }
+      }
+
       async function renderHome() {
+        // V16.2w P0:首页渲染整体兜底 —— 读取失败必须显示"读取失败(可诊断)",绝不静默停在 -- 或空
+        try {
         const eng = await getPaperEngine();
         const snapshot = eng.snapshot();
         let learning = { note: "系统正在积累数据" };
@@ -4621,9 +4732,22 @@ export const page = String.raw`<!doctype html>
         setText("hmAllocation", vm.allocation_text, "muted");
         setText("hmPositions", vm.open_positions + " 个");
         setText("hmTrades", vm.today_trades + " 次");
-        setText("hmRisk", vm.risk_level + (vm.risk_score == null ? "" : " " + vm.risk_score));
+        // V16.2w P0:未分析任何币种时显式写"未分析"(不再保留 -- 与"数据缺失"混淆)
+        const riskText = vm.risk_level === "--" || vm.risk_level == null || vm.risk_level === "" ? "未分析" : vm.risk_level + (vm.risk_score == null ? "" : " " + vm.risk_score);
+        setText("hmRisk", riskText);
         setText("hmState", vm.state_label);
         setText("hmLearning", vm.learning_status);
+        // V16.2w P0:设备壳里"后台运行时已启动但本地镜像尚未落库"→ 显式等待态(不允许 0.00/-- 冒充数据)
+        if (window.__quantNativeShell === true) {
+          const nAcc = (snapshot && snapshot.account) || {};
+          const mirrorEmpty = !(QE.num(nAcc.initial_balance, 0) > 0 || QE.num(nAcc.total_equity, 0) > 0 || QE.num(nAcc.cash_balance, 0) > 0);
+          if (mirrorEmpty) {
+            setText("hmEquity", "等待后台数据…");
+            setText("hmAllocation", "等待后台数据…");
+            setText("hmShortEq", "…", "v");
+            setText("hmLongEq", "…", "v");
+          }
+        }
         // V16.2u §3/§34/§40:统一呈现态 —— 标签与按钮来自【同一来源】(引擎 runtimeView + 终态镜像),
         // 不再出现"显示自动运行中却还能点开始模拟"的双源不一致。
         const rv = homeRuntimeView(eng, snapshot);
@@ -4641,6 +4765,16 @@ export const page = String.raw`<!doctype html>
           pauseBtn.disabled = Boolean(paperStartBusy);
         }
         return vm;
+        } catch (error) {
+          bootFail("renderHome", error);
+          try {
+            const st = $("hmState");
+            if (st) st.textContent = "数据读取失败 · 详情见 我的→诊断";
+            const nt = $("hmNote");
+            if (nt) nt.textContent = "首页读取异常:" + String((error && error.message) || error).slice(0, 80);
+          } catch (error2) { /* 错误提示失败也不许再抛 */ }
+          return null;
+        }
       }
       // 呈现态输入:本地引擎权威;Native 壳里若后台运行时已 RUNNING/PAUSED,以后台为准(避免双源打架)
       function homeRuntimeView(eng, snapshot) {
@@ -5368,7 +5502,7 @@ export const page = String.raw`<!doctype html>
       ];
       const dtMarkFilters = { entry: true, partial: true, close: true, stopTp: true };
       try {
-        const rawFilters = JSON.parse(localStorage.getItem(DT_MARK_FILTERS_KEY) || "null");
+        const rawFilters = lsGetJson(DT_MARK_FILTERS_KEY, null);
         if (rawFilters && typeof rawFilters === "object") {
           for (const g of DT_MARK_GROUPS) if (typeof rawFilters[g.key] === "boolean") dtMarkFilters[g.key] = rawFilters[g.key];
         }
@@ -7247,7 +7381,7 @@ export const page = String.raw`<!doctype html>
 
       // ================= V15:通知中心 / 手动平仓 / 暂停开仓 / 紧急全平 / 重置 / 导出 =================
       const ntfSettings = (() => {
-        try { return JSON.parse(localStorage.getItem("ntfSettings") || "{}"); } catch (error) { return {}; }
+        const v = lsGetJson("ntfSettings", null); return v && typeof v === "object" && !Array.isArray(v) ? v : {};
       })();
       const NTF_TYPES = [
         { id: "TRADE", label: "开仓提醒", key: "ntfSetTrade" },
@@ -8218,6 +8352,30 @@ export const page = String.raw`<!doctype html>
         } else {
           p0Card.classList.add("kd-hide");
         }
+
+        // V16.2w P0:Boot Status —— 启动阶段/失败(含堆栈)/存储自愈,真机故障必须在这里可见
+        try {
+          const bootBox = $("diagBootBox");
+          if (bootBox) {
+            bootBox.replaceChildren();
+            const B = window.__quantBoot || {};
+            const rowOfBoot = (k, v) => { const el = vEl("div", "hm-row"); el.appendChild(vEl("span", "k", k)); el.appendChild(vEl("span", "v", String(v))); return el; };
+            bootBox.appendChild(rowOfBoot("当前阶段", B.stage || "--"));
+            bootBox.appendChild(rowOfBoot("UI_READY", B.ui_ready ? "是" : "否(仍在启动或已终止)"));
+            bootBox.appendChild(rowOfBoot("导航切换次数", QE.num(B.nav_switches, 0)));
+            bootBox.appendChild(rowOfBoot("兜底导航启用", B.fallback_nav_used ? ("是 x" + B.fallback_nav_used) : "否"));
+            const healed = Array.isArray(B.storage_healed) ? B.storage_healed : [];
+            bootBox.appendChild(rowOfBoot("存储自愈", healed.length ? healed.map((x) => x.key + "(" + x.reason + ")").join("、") : "无"));
+            const bootErrors = Array.isArray(B.errors) ? B.errors.slice(-5) : [];
+            if (bootErrors.length) {
+              for (const e of bootErrors) bootBox.appendChild(vEl("div", "v-note", String(e.stage) + " · " + String(e.error).slice(0, 160)));
+              const lastStack = String((bootErrors[bootErrors.length - 1] || {}).stack || "").split("\n").slice(0, 3).join(" | ").slice(0, 240);
+              if (lastStack) bootBox.appendChild(vEl("div", "v-note", "最近堆栈:" + lastStack));
+            } else {
+              bootBox.appendChild(vEl("div", "empty-state", "启动过程无异常记录。"));
+            }
+          }
+        } catch (error) { diagLog("diag-boot", error); }
 
         // V16.2v §17:Universe Health(动态币种池诊断;若"连续只扫 4 个币"必须能在这里被发现)
         try {
@@ -9526,6 +9684,7 @@ export const page = String.raw`<!doctype html>
           return false;
         }
         const canonical = route.route;
+        try { BOOT.nav_switches = QE.num(BOOT.nav_switches, 0) + 1; bootStage("nav:" + canonical); } catch (error) { /* 计数失败不影响导航 */ }
         const prev = currentPage;
         const seq = ++navSeq;
         navBusy = { seq: seq, route: canonical, prev: prev, at: Date.now() };
@@ -9717,6 +9876,8 @@ export const page = String.raw`<!doctype html>
         // V16.2s:①"先绘制、后重活" —— active 切换后先让浏览器画一帧,再跑该页数据刷新;
         //         ②重复点击当前 Tab = 回到顶部(不再重跑全量渲染、不重复请求);
         //         ③点击埋点(tap→feedback→transition→first_paint→ready)。
+        try {
+        // V16.2w P0:任何绑定异常只记录(BOOT_FAILED)并继续 —— 单点失败不得让后续绑定/启动静默消失
         document.querySelectorAll(".nav-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
             const page = btn.dataset.page;
@@ -9742,6 +9903,11 @@ export const page = String.raw`<!doctype html>
             });
           });
         });
+        window.__quantNavOwned = true;   // 单一导航处理器:head 兜底导航退场(不双绑)
+        bootStage("nav_bound");
+        homeBootPlaceholders();          // 首页先给"加载中…"(此后即便启动失败也不会看到永久 --)
+        } catch (error) { bootFail("bind:nav", error); }
+        try {
         // V16.2s:市场/自选 分段控件(滑块先动、内容随后;纯状态切换,不等网络)
         $("mkSegMarket").addEventListener("click", () => {
           const h = tapHandle($("mkSegMarket"), "seg:market");
@@ -9914,10 +10080,24 @@ export const page = String.raw`<!doctype html>
           if ($("page-home").classList.contains("active")) void renderHome();
           applyNotificationRoute();
         });
-        await getPaperEngine();
-        setActivePage("home");   // 初始就位:移动页激活时收起旧版容器,保证首屏不是空白
-        await renderHome();
-        await renderMarket(false).catch(() => {});
+        } catch (error) { bootFail("bind:main", error); }
+        bootStage("engine_init");
+        try { await getPaperEngine(); } catch (error) { bootFail("engine", error); }
+        bootStage("activate_home");
+        try { setActivePage("home"); } catch (error) { bootFail("activate_home", error); }   // 初始就位:移动页激活时收起旧版容器,保证首屏不是空白
+        bootStage("home_render");
+        try { await renderHome(); bootStage("account_ready"); } catch (error) { bootFail("renderHome_tail", error); }
+        // V16.2w P0:UI_READY = 本地账户已 hydrate + 导航可用(不依赖任何 Market API) —— 最先达成
+        bootStage("ui_ready");
+        BOOT.ui_ready = true;
+        try {
+          const bb = $("bootBanner");
+          const hardErrors = (BOOT.errors || []).filter((e) => !/^storage_/.test(String(e && e.stage)));
+          if (bb) { if (hardErrors.length) bb.classList.remove("hidden"); else bb.classList.add("hidden"); }
+        } catch (error) { /* 横幅状态失败不影响启动 */ }
+        void renderMarket(false).then(() => bootStage("market_ready")).catch(() => bootStage("market_degraded"));
+        // V16.2w P0:后台定时器/worker 启动分块隔离(失败只记录,不影响已就绪的 UI)
+        try {
         // V16.2v §15:动态币种池 —— 首轮立即扫描,之后每 10 分钟刷新(与后台运行时同节奏)
         if (universeTimer) clearInterval(universeTimer);
         universeTimer = setInterval(() => { void refreshUniverseScan(false); }, 600000);
@@ -9947,6 +10127,7 @@ export const page = String.raw`<!doctype html>
         loadChatSessions();
         // 启动即尝试装载 Champion(有工件就用真实推理,没有就走回退)
         void refreshChampion(false);
+        } catch (error) { bootFail("background", error); }
         // 只读观测接口:供导航压力测试与真机诊断读取真实运行态(不含任何业务写操作)
         window.__quantUI = {
           state: () => ({
@@ -10160,10 +10341,18 @@ export const page = String.raw`<!doctype html>
         }
       }
 
-      setup();
-      void initMobileUI();
-
-      void initHistory();
+      // ===== V16.2w P0:Boot 引导 —— 每条引导都独立兜底,任何一步失败都记录阶段+堆栈(BOOT_FAILED),不再静默 =====
+      bootStage("setup");
+      try { setup(); bootStage("setup_done"); } catch (error) { bootFail("setup", error); }
+      bootStage("ui_init");
+      try {
+        const uiInit = initMobileUI();
+        if (uiInit && typeof uiInit.catch === "function") uiInit.catch((error) => bootFail("initMobileUI", error));
+      } catch (error) { bootFail("initMobileUI_sync", error); }
+      try {
+        const hInit = initHistory();
+        if (hInit && typeof hInit.catch === "function") hInit.catch((error) => bootFail("initHistory", error));
+      } catch (error) { bootFail("initHistory_sync", error); }
     </script>
   </body>
 </html>`;

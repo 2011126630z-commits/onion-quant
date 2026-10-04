@@ -129,7 +129,12 @@ check("无 AI Demo 风样式(新增样式块无霓虹/毛玻璃/渐变)", !/back
 console.log("== D. Paper 引擎单一实例 wiring ==");
 const pageSrc = fs.readFileSync(path.join(ROOT, "worker/src/ui/page.js"), "utf8");
 check("引擎通过单例获取", /let paperApi = null;/.test(pageSrc) && /if \(!paperApi\) \{/.test(pageSrc) && /paperApi = \(async \(\) =>/.test(pageSrc), "缺少单例守卫");
-check("initMobileUI 只初始化一次(流程内调用一次)", (pageSrc.match(/void initMobileUI\(\);/g) || []).length === 1, String((pageSrc.match(/void initMobileUI\(\);/g) || []).length));
+// §67 说明:V16.2w P0 起引导改为"每步独立兜底"(try/catch + bootFail 记录 BOOT_FAILED),不再有裸 `void initMobileUI();`,
+// 旧断言(字面量 void initMobileUI(); 出现 1 次)随形态失效。新断言验证真实需求不变:全脚本只初始化一次,
+// 且初始化带失败记录(不允许静默死亡)。
+const initCallCount = (pageSrc.match(/(?<!function )initMobileUI\(\)/g) || []).length;
+check("initMobileUI 只初始化一次(流程内调用一次)", initCallCount === 1, String(initCallCount));
+check("initMobileUI 引导带失败记录(bootFail,不静默)", /uiInit\.catch\(\(error\) => bootFail\("initMobileUI"/.test(pageSrc), "缺少 bootFail 兜底");
 // §67 说明:旧断言要求 start/pause 内联写在按钮监听器里(300 字符窗口内出现 eng.start())。
 // V16.2u 起按钮改走【幂等入口】startPaperFromHome / pausePaperFromHome(连点只执行一次,后台运行时前台不重复拉起),
 // 内联写法已不成立 —— 新断言验证真实需求:入口确实调用引擎 start/resume/pause,且带 paperStartBusy 幂等守卫。

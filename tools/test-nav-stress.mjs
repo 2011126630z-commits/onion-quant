@@ -281,6 +281,8 @@ const tickers = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSD
 const windowObj = {
   devicePixelRatio: 3,
   __quantDiag: [],
+  // V16.2w:与真实浏览器一致 —— window.localStorage 必须与全局 localStorage 同体(页面护盾用 window.localStorage)
+  localStorage: null,
   matchMedia: () => ({ matches: true, addEventListener() {} }),
   addEventListener(type, fn) { dom.counters.listeners += 1; dom.counters.persistentListeners += 1; (this.__listeners = this.__listeners || {})[type] = (this.__listeners[type] || []).concat(fn); },
   removeEventListener() {},
@@ -340,6 +342,8 @@ sandbox.fetch = windowObj.fetch;
 sandbox.Response = class { static json(body, init) { return jsonResponse(body, init && init.status); } };
 sandbox.Request = class { constructor(url) { this.url = String(url); } };
 sandbox.Headers = class { get() { return null; } };
+// V16.2w:window.localStorage 必须与沙箱全局同体(真实浏览器行为);否则页面护盾会记录"存储不可用"软故障
+windowObj.localStorage = sandbox.localStorage;
 
 vm.createContext(sandbox);
 // 先跑 QEngine bundle(页面脚本依赖 window.QEngine),再包一层计数

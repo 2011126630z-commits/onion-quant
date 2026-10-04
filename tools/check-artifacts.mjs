@@ -287,6 +287,30 @@ check("V16.2v 市场扫描面板 + 宇宙健康诊断 + 候选来自短名单",
   /id="mkScanPanel"/.test(pageSrc) && /diagUniverseBox/.test(pageSrc) && /refreshUniverseScan/.test(pageSrc)
   && /scan\.shortlist/.test(pageSrc) && /universe: uni/.test(hostSrc));
 
+// ---- V16.2w P0:启动护盾 / 兜底导航 / Boot Status(真机"全 -- + 点击无反应"根因的结构性封堵) ----
+check("V16.2w 启动护盾:模块级存储读取全部守卫(不再有裸 JSON.parse(localStorage…) 致死主脚本)",
+  /function lsGetJson\(/.test(pageSrc) && /function lsGetRaw\(/.test(pageSrc)
+  // 只检查主脚本段(head 段落已有独立 try/catch 主题守卫,不在本断言范围)
+  && !/JSON\.parse\((window\.)?localStorage\.getItem/.test(pageSrc.slice(pageSrc.indexOf("<!--__QE_BUNDLE__-->"))));
+check("V16.2w 启动护盾:损坏值自愈(移除键 + storage_healed 留痕)",
+  /storage_healed\.push\(/.test(pageSrc) && /reason: "corrupt_json"/.test(pageSrc));
+check("V16.2w BOOT_SEQUENCE 阶段插桩 + BOOT_FAILED 记录(阶段/错误/堆栈)",
+  /function bootStage\(/.test(pageSrc) && /function bootFail\(/.test(pageSrc)
+  && /bootStage\("ui_ready"\)/.test(pageSrc) && /BOOT\.ui_ready = true/.test(pageSrc)
+  && /stack: String\(\(error && error\.stack\) \|\| ""\)\.slice\(0, 1200\)/.test(pageSrc));
+check("V16.2w head 护盾②:主脚本死亡时兜底导航 + 启动异常横幅(不静默)",
+  /__quantNavOwned/.test(pageSrc) && /fallback_nav:/.test(pageSrc) && /id="bootBanner"/.test(pageSrc)
+  && /__quantShowBootBanner/.test(pageSrc));
+check("V16.2w 导航绑定分块隔离(bind:nav / bind:main 失败只记录不中断)",
+  /bootFail\("bind:nav", error\)/.test(pageSrc) && /bootFail\("bind:main", error\)/.test(pageSrc));
+check("V16.2w 首页三态替代永久 --:加载中…占位 / 等待后台数据… / 读取失败",
+  /homeBootPlaceholders/.test(pageSrc) && /"加载中…"/.test(pageSrc) && /等待后台数据…/.test(pageSrc) && /数据读取失败/.test(pageSrc));
+check("V16.2w 诊断页 Boot Status 卡片(阶段/自愈/错误/兜底导航计数)",
+  /id="diagBootCard"/.test(pageSrc) && /id="diagBootBox"/.test(pageSrc) && /nav_switches/.test(pageSrc)
+  && /兜底导航启用/.test(pageSrc));
+check("V16.2w 单一导航处理器(head 兜底遇 __quantNavOwned 即退场)",
+  /if \(window\.__quantNavOwned\) return;/.test(pageSrc));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
 console.log("ARTIFACT CHECKS OK");

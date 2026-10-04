@@ -48,6 +48,7 @@ const SUITES = [
   "tools/test-v162s-ui.mjs",
   "tools/test-p0-runtime-guards.mjs",
   "tools/test-universe-efficiency.mjs",
+  "tools/test-device-boot.mjs",
   "tools/check-artifacts.mjs",
   "tools/smoke-http.mjs"
 ];
