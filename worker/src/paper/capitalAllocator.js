@@ -201,10 +201,15 @@ export function capitalAllocation(input) {
   if (equity > capEps()) pct = usdt / equity * 100;
 
   if (pct < limits.min_alloc_pct || usdt <= capEps()) {
+    // V16.2u §1 可解释性:阵营/组合配额被顶满导致归零时,必须报"真因"(CLUSTER_CAP / PORTFOLIO_CAP),
+    // 不能误报成"可用资金不足"(旧实现一律 LIQUIDITY_EMPTY,把组合风险问题伪装成现金问题)。
+    const binding = (caps.includes("CLUSTER_CAP") && clusterRoom <= capEps()) ? "CLUSTER_CAP"
+      : (caps.includes("PORTFOLIO_CAP") && room <= capEps()) ? "PORTFOLIO_CAP"
+      : null;
     return {
       allowed: false, approved_pct: Math.max(0, pct), approved_usdt: Math.max(0, usdt),
-      code: usdt <= capEps() ? "LIQUIDITY_EMPTY" : "BELOW_MIN",
-      reason: usdt <= capEps() ? ALLOC_BLOCK_CODES.LIQUIDITY_EMPTY : ALLOC_BLOCK_CODES.BELOW_MIN,
+      code: binding || (usdt <= capEps() ? "LIQUIDITY_EMPTY" : "BELOW_MIN"),
+      reason: ALLOC_BLOCK_CODES[binding] || (usdt <= capEps() ? ALLOC_BLOCK_CODES.LIQUIDITY_EMPTY : ALLOC_BLOCK_CODES.BELOW_MIN),
       caps_applied: caps, detail: { quality_pct: qualityPct, available: available, equity: equity }
     };
   }

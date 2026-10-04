@@ -355,9 +355,19 @@ export function createPaperRuntime(options) {
           const candle = typeof o.closedCandleTimeOf === "function"
             ? o.closedCandleTimeOf(interval)
             : closedCandleTime(now(), RUNTIME_INTERVAL_MS[interval] || 3600000);
+          // V16.2u §3:候选自带溯源链(与引擎缺省派生同公式):
+          //   Signal = 该 symbol 该周期该收盘K线的方向判定;Intent = 策略模式(short/long)对该信号的处理。
+          //   同一时刻短线池与长线池各自产生独立 Intent(周期不同:1h vs 4h)——属于"两个策略"而非重复消费;
+          //   是否允许同时开仓由组合暴露/相关性守卫(capitalAllocator)裁决。
+          const dirTag = (analysis.direction === "Bullish" || analysis.direction === "Strong Bullish") ? "L" : "S";
+          const signalId = "sig_" + symbol + "_" + interval + "_" + candle + "_" + dirTag;
           candidates.push({
             symbol,
             mode,
+            strategy_mode: mode === "long" ? "LONG_TERM" : "SHORT_TERM",
+            signal_id: signalId,
+            strategy_intent_id: "intent_" + mode + "_" + signalId,
+            action_source: "AUTO",
             analysis,
             direction: analysis.direction,
             riskPct: num(o.riskPct, 15),

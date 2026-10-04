@@ -725,6 +725,31 @@ check("OverlayPointerBlockTest:装饰层 pointer-events:none", /\.fab\.fab-dim \
   check("RapidBackForwardTest:30 轮 市场↔详情 无一次 active 数 != 1", bad === 0, "bad=" + bad);
 }
 
+// ---------- 9) V16.2u:Start 幂等 / 运行态唯一来源(UI 级,沙箱真点击) ----------
+console.log("== V16.2u Start 幂等 / Runtime 状态机(UI) ==");
+{
+  await clickNav("home"); await flush(16);
+  const startBtn = dom.byId.get("hmStartBtn");
+  const pauseBtn = dom.byId.get("hmPauseBtn");
+  const beforeInstances = engineInstances;
+  const beforeIntervals = timers.live("interval");
+  for (let i = 0; i < 10; i += 1) startBtn.click();   // 连点 10 次
+  await flush(80);
+  check("StartIdempotent10ClicksTest:10 连点后引擎实例仍为 1", engineInstances === beforeInstances && engineInstances === 1, "instances=" + engineInstances);
+  check("StartIdempotent10ClicksTest:只登记 1 个 Loop(不是 10 个)", timers.live("interval") - beforeIntervals === 1, "delta=" + (timers.live("interval") - beforeIntervals));
+  check("RuntimeStateUnifiedTest:RUNNING 时首页标签=自动模拟运行中", /自动模拟运行中/.test(String(dom.byId.get("hmState").textContent || "")), String(dom.byId.get("hmState").textContent));
+  check("RuntimeStateUnifiedTest:RUNNING 时开始按钮隐藏、暂停按钮可见(核心回归)", startBtn.hidden === true && pauseBtn.hidden === false, JSON.stringify({ s: startBtn.hidden, p: pauseBtn.hidden }));
+  // 暂停 → 继续 的状态机往返
+  pauseBtn.click();
+  await flush(40);
+  check("RuntimeStateUnifiedTest:PAUSED 时显示继续模拟", startBtn.hidden === false && startBtn.textContent === "继续模拟" && /已暂停/.test(String(dom.byId.get("hmState").textContent || "")), JSON.stringify({ h: startBtn.hidden, t: startBtn.textContent, s: dom.byId.get("hmState").textContent }));
+  const intervalsBeforeResume = timers.live("interval");
+  for (let i = 0; i < 10; i += 1) startBtn.click();   // 继续也连点 10 次
+  await flush(80);
+  check("StartIdempotent10ClicksTest:继续连点不重复登记 Loop", timers.live("interval") - intervalsBeforeResume === 0, "delta=" + (timers.live("interval") - intervalsBeforeResume));
+  check("StartIdempotent10ClicksTest:继续后回到 RUNNING 且实例仍 1", engineInstances === 1 && /自动模拟运行中/.test(String(dom.byId.get("hmState").textContent || "")), String(dom.byId.get("hmState").textContent));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
 console.log("NAV STRESS TESTS OK");

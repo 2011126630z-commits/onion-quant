@@ -130,7 +130,17 @@ console.log("== D. Paper 引擎单一实例 wiring ==");
 const pageSrc = fs.readFileSync(path.join(ROOT, "worker/src/ui/page.js"), "utf8");
 check("引擎通过单例获取", /let paperApi = null;/.test(pageSrc) && /if \(!paperApi\) \{/.test(pageSrc) && /paperApi = \(async \(\) =>/.test(pageSrc), "缺少单例守卫");
 check("initMobileUI 只初始化一次(流程内调用一次)", (pageSrc.match(/void initMobileUI\(\);/g) || []).length === 1, String((pageSrc.match(/void initMobileUI\(\);/g) || []).length));
-check("首页按钮接 engine.start/pause/resume", /hmStartBtn[\s\S]{0,300}eng\.start\(\)/.test(pageSrc) && /hmPauseBtn[\s\S]{0,200}eng\.pause\(/.test(pageSrc));
+// §67 说明:旧断言要求 start/pause 内联写在按钮监听器里(300 字符窗口内出现 eng.start())。
+// V16.2u 起按钮改走【幂等入口】startPaperFromHome / pausePaperFromHome(连点只执行一次,后台运行时前台不重复拉起),
+// 内联写法已不成立 —— 新断言验证真实需求:入口确实调用引擎 start/resume/pause,且带 paperStartBusy 幂等守卫。
+check("首页按钮接 engine.start/pause/resume(经幂等入口)",
+  /hmStartBtn"\)\.addEventListener\("click", \(\) => \{ void startPaperFromHome\(\); \}\)/.test(pageSrc)
+  && /hmPauseBtn"\)\.addEventListener\("click", \(\) => \{ void pausePaperFromHome\(\); \}\)/.test(pageSrc)
+  && /async function startPaperFromHome\(\)/.test(pageSrc)
+  && /st === "PAUSED" \? await eng\.resume\(\) : await eng\.start\(\)/.test(pageSrc)
+  && /async function pausePaperFromHome\(\)/.test(pageSrc)
+  && /await eng\.pause\("用户暂停"\)/.test(pageSrc)
+  && /if \(paperStartBusy\) return \{ ok: false, reason: "busy" \}/.test(pageSrc));
 check("导航切换只取消 UI 请求(不停止引擎)", /RM\.leaveAll\(\["paper"\]\)/.test(pageSrc) && !/pause\(.*nav-btn/.test(pageSrc));
 check("Paper Loop 与 UI 解耦(定时器独立)", /paperLoopTimer = setInterval/.test(pageSrc));
 check("Retention 定时执行", /retentionTimer = setInterval/.test(pageSrc));

@@ -180,6 +180,7 @@ const PAGE_EXPORTS = [
   "buildReviewPayload", "shouldReview", "reviewCacheKey", "callDeepSeek", "tokenBudgetState", "DEEPSEEK_DEFAULTS",
   "buildChatContext", "answerLocally", "chatContextSummary",
   "createRequestManager", "homeViewModel", "paperViewModel", "detailViewModel", "chatViewModel", "marketRow", "learningViewModel", "stateLabel", "fmtUsdt", "fmtPct", "fmtHold",
+  "PAPER_RUNTIME_STATES", "RUNTIME_STATE_ZH", "paperRuntimeView",
   "capitalSnapshot", "capitalParity", "CAPITAL_PARITY_TOLERANCE", "notificationRoute",
   "expireStaleCommands", "COMMAND_TTL_MS",
   "createNavState", "backPriority", "restoreScrollAfterReady", "isSubPage", "NAV_TABS", "NAV_STATE_VERSION",

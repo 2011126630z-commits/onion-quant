@@ -23,7 +23,7 @@ import { attributionOf, attributionView, exitBucketOf, isValidTrade } from "./at
 // V16 资金与决策内核:精确金额 / 开仓质量闸门 / 组合资金分配 / 利润分配 / 高水位保护 / 论点跟踪
 import { ledgerExactAudit, toUnits, fromUnits, MONEY_DRIFT_TOLERANCE_UNITS } from "./money.js";
 import { entryQuality, minimumMeaningfulPosition, skipShadowRecord, resolveSkipShadow, ENTRY_DECISION_ZH, NO_TRADE_ZH, ENTRY_QUALITY_RULES } from "./entryQuality.js";
-import { capitalAllocation, createReserveBook, reserveCapital, commitReserve, releaseReserve, sweepOrphanReservations, reservedTotal, reserveSummary, effectiveExposure, exposureReport, CAPITAL_LIMITS } from "./capitalAllocator.js";
+import { capitalAllocation, createReserveBook, reserveCapital, commitReserve, releaseReserve, sweepOrphanReservations, reservedTotal, reserveSummary, effectiveExposure, exposureReport, CAPITAL_LIMITS, clusterOfSymbol } from "./capitalAllocator.js";
 import { createProfitPool, splitProfitOnPositionClose, protectedBalance, poolLayers, poolSummary, protectedIsolationCheck } from "./profitAllocation.js";
 import { createHwmState, updateHwm, hardStopGate, drawdownFromPeak, scaleForDrawdown, HWM_STATE_ZH, recoverFromHardStop, hwmRecord, mergeHwm } from "./hwm.js";
 import { buildEntryThesis, evaluateThesis, profitProtectionDecision, lossManagementDecision, flipAllowed, mustExitImmediately, thesisSnapshot, rhythmPolicy } from "./thesis.js";
@@ -231,6 +231,10 @@ export function createPaperEngine(deps) {
       symbol: position.symbol,
       mode: position.mode,
       action_source: (input && input.action_source) || "AUTO",
+      // V16.2u §3/§18:决策日志同样带溯源链("为什么开这单"可回答:哪个信号→哪个意图→哪次决策)
+      signal_id: (input && input.signal_id) || position.signal_id || null,
+      strategy_intent_id: (input && input.strategy_intent_id) || position.strategy_intent_id || null,
+      decision_id: (input && input.decision_id) || position.decision_id || null,
       why: ((input && input.reason) || "信号触发") + " · " + sideOf(position) + " " + num(position.leverage, 1) + "x",
       rule: { direction: a.direction || position.direction, confidence: a.confidence == null ? null : a.confidence, strength: a.signal_strength || null },
       ml: dec.ml ? { version: dec.ml.version || null, probability: dec.ml.probability == null ? null : dec.ml.probability, used: true } : null,
@@ -725,6 +729,18 @@ export function createPaperEngine(deps) {
     return mutex(async () => {
       const mode = input.mode === "long" ? "long" : "short";
       const key = idempotencyKey(mode, input.symbol, input.signal_timestamp, input.direction);
+      // V16.2u §3:全链路可追溯 ID(确定性派生,绝不随机,缺省即补全):
+      //   Market Event(收盘K线) → Signal(signal_id) → Strategy Intent(strategy_intent_id,含策略模式)
+      //   → Decision(decision_id) → Order(idempotency_key/order_id) → Position(position_id)
+      // 同一收盘K线+同向+同一策略模式 → 恒为同一 signal_id(幂等键同源);不同模式=不同 Intent(可解释)。
+      const sigId = String(input.signal_id
+        || ("sig_" + input.symbol + "_" + (MODE_CONFIG[mode] || MODE_CONFIG.short).interval + "_" + num(input.signal_timestamp, 0)
+          + "_" + ((input.direction === "Bullish" || input.direction === "Strong Bullish") ? "L" : "S")));
+      const strategyIntentId = String(input.strategy_intent_id || ("intent_" + mode + "_" + sigId));
+      const decisionId = String(input.decision_id || ("dec_" + strategyIntentId));
+      input.signal_id = sigId;
+      input.strategy_intent_id = strategyIntentId;
+      input.decision_id = decisionId;
       const existed = engine.orders.find((o) => o.idempotency_key === key);
       if (existed) {
         log("order", "幂等命中,拒绝重复下单:" + key);
@@ -835,6 +851,16 @@ export function createPaperEngine(deps) {
       // ---- V16 §1:Entry Quality Gate(费用前置净边际 + 概率优势 + 不确定性)----
       const equityNow = Math.max(0, num(engine.account.cash_balance) + num(engine.account.reserved_balance) + num(engine.account.unrealized_pnl));
       const dqState = (dataQualitySentinel && dataQualitySentinel.state) ? dataQualitySentinel.state() : { ok: true };
+      // V16.2u §6/§62:组合暴露预检真的接线 —— 旧实现把 exposure_allow 写死 true,
+      // "同向阵营 / 组合保证金"余量归零时组合守卫实际只在缩仓阶段兜底。
+      // 现在:余量归零 → Entry Gate 直接 NO_TRADE(EXPOSURE_CAP,正式决策+影子),不允许 40%×N 绕过。
+      const preExpo = effectiveExposure(engine.positions, {});
+      const preClusterKey = clusterOfSymbol(input.symbol) + "|" + direction;
+      const clusterNowMargin = num(preExpo.by_cluster[preClusterKey], 0);
+      const clusterCapMargin = equityNow * CAPITAL_LIMITS.cluster_same_direction_pct / 100;
+      const portfolioRoomMargin = equityNow * CAPITAL_LIMITS.max_portfolio_margin_pct / 100 - num(preExpo.adjusted_exposure, 0);
+      const minAllocMargin = equityNow * CAPITAL_LIMITS.min_alloc_pct / 100;
+      const exposureAllow = clusterNowMargin < clusterCapMargin - 1e-9 && portfolioRoomMargin > minAllocMargin - 1e-9;
       const regimeLabel = input.analysis && input.analysis.market_regime ? input.analysis.market_regime.label : null;
       const quality = entryQuality({
         rule: { score: (direction === "LONG" ? 1 : -1) * num(input.analysis && input.analysis.confidence, 50) },
@@ -848,7 +874,7 @@ export function createPaperEngine(deps) {
         hold_hours: num(MODE_CONFIG[mode] && MODE_CONFIG[mode].maxHoldMs, 0) / 3600000,
         regime: regimeLabel,
         risk_allow: !riskVeto.veto,
-        exposure_allow: true,
+        exposure_allow: exposureAllow,
         sample_count: input.sample_count == null ? null : num(input.sample_count),
         now: now()
       });
@@ -977,6 +1003,12 @@ export function createPaperEngine(deps) {
       applied.order.idempotency_key = key;
       Object.assign(applied.position, {
         strategy_mode: mode === "long" ? "LONG_TERM" : "SHORT_TERM",
+        // V16.2u §3:溯源链(来源可解释:这一单是哪个信号/哪个策略意图/哪次决策/谁批准的资金)
+        signal_id: sigId,
+        strategy_intent_id: strategyIntentId,
+        decision_id: decisionId,
+        action_source: input.action_source || "AUTO",
+        alloc_caps: (alloc && alloc.caps_applied) ? alloc.caps_applied.slice() : [],
         direction,
         initial_quantity: applied.position.quantity,
         remaining_quantity: applied.position.quantity,
@@ -2650,6 +2682,8 @@ export function createPaperEngine(deps) {
     journalWhy: (symbol) => decisionJournal.whyText(symbol),
     journalSummary: () => decisionJournal.summary(),
     journalContextForChat: (question, opts) => journalContextForChat(decisionJournal, question, opts || {}),
+    // V16.2u §18:决策日志条目(带 signal/intent/decision 溯源字段),供"为什么开/平这单"查询与测试
+    journalEntries: (o) => (decisionJournal && typeof decisionJournal.list === "function") ? decisionJournal.list(o || {}) : [],
     positionAudit: (opts) => positionManager.audit(opts || {}),
     positionOverview: () => positionManagerView(engine.positions),
     recoveryReport: () => engine.recoveryReport,
@@ -2763,6 +2797,22 @@ export function createPaperEngine(deps) {
       };
     },
     updateHighWater,
+    // V16.2u §3/§34/§40:运行时"呈现态"唯一输入(UI 不再拼多源):
+    // 统一状态机 STOPPED / STARTING / RUNNING / PAUSED / DEGRADED / SAFE_MODE / HARD_STOP
+    runtimeView: () => {
+      const hs = hardStopGate(engine.hwm);
+      const dq = (dataQualitySentinel && dataQualitySentinel.state) ? dataQualitySentinel.state() : { ok: true };
+      return {
+        state: engine.state.state,
+        entries_paused: Boolean(engine.entriesPaused),
+        entries_paused_reason: engine.entriesPausedReason || null,
+        hwm_block: Boolean(hs.block_new_entry),
+        hwm_state: engine.hwm ? engine.hwm.state : null,
+        hwm_drawdown_pct: num(engine.hwm && engine.hwm.drawdown_pct, 0),
+        data_quality_ok: Boolean(dq.ok),
+        open_positions: engine.positions.filter((p) => p.status === "OPEN" || p.status === "CLOSING").length
+      };
+    },
     recoverHwm: (checks, at) => {
       const r = recoverFromHardStop(engine.hwm, checks, at == null ? now() : at);
       if (r.ok) { engine.hwm = r.state; clearIntegrityPause(); resumeEntries(); }

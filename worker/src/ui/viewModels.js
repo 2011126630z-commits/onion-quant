@@ -442,3 +442,50 @@ export function notificationRoute(input) {
   }
   return { page: symbol ? "detail" : "paper", symbol: symbol, reason: symbol ? "默认(带币种) → 详情" : "默认 → 模拟页" };
 }
+
+
+// V16.2u §3/§34/§40:Paper Runtime 统一呈现态(纯函数,单一事实来源)
+// 规则:引擎内部状态(RECOVERING/ERROR)与账户级保护(HWM/完整性/数据质量/运行时停滞)
+// 归一到 UI/报告共用的 7 态;RUNNING/DEGRADED 时不得再出现可点击的"开始模拟"。
+export const PAPER_RUNTIME_STATES = ["STOPPED", "STARTING", "RUNNING", "PAUSED", "DEGRADED", "SAFE_MODE", "HARD_STOP"];
+export const RUNTIME_STATE_ZH = {
+  STOPPED: "已停止", STARTING: "启动中", RUNNING: "自动模拟运行中", PAUSED: "已暂停",
+  DEGRADED: "降级运行", SAFE_MODE: "安全模式(已暂停新开仓)", HARD_STOP: "回撤保护(HARD STOP)"
+};
+export function paperRuntimeView(input) {
+  const o = input || {};
+  const base = String(o.engine_state || "STOPPED");
+  const reasons = [];
+  let state = base === "RECOVERING" ? "STARTING" : (base === "ERROR" ? "SAFE_MODE" : base);
+  if (!PAPER_RUNTIME_STATES.includes(state)) state = "STOPPED";
+  if (o.hwm_block) {
+    state = "HARD_STOP";
+    reasons.push("账户回撤已达保护线" + (o.hwm_drawdown_pct ? "(" + Number(o.hwm_drawdown_pct).toFixed(1) + "%)" : ""));
+  } else if (o.entries_paused || o.safe_mode) {
+    if (state === "RUNNING" || state === "STARTING") state = "SAFE_MODE";
+    reasons.push(String(o.entries_paused_reason || o.safe_mode_reason || "数据完整性保护"));
+  } else if ((o.data_degraded || o.market_stale || o.runtime_stalled) && state === "RUNNING") {
+    state = "DEGRADED";
+    if (o.data_degraded) reasons.push("数据质量降级");
+    if (o.market_stale) reasons.push("行情停滞");
+    if (o.runtime_stalled) reasons.push("运行时心跳停滞");
+  }
+  const running = state === "RUNNING" || state === "DEGRADED";
+  // HARD_STOP / SAFE_MODE 下引擎仍在对已有仓位做风控管理,"暂停"依然有效;
+  // 但"开始模拟"这两种状态下必须消失(禁止新开仓语义优先)。
+  const manageable = running || state === "HARD_STOP" || state === "SAFE_MODE";
+  return {
+    state,
+    label: RUNTIME_STATE_ZH[state] || state,
+    reason_short: reasons.length ? reasons.slice(0, 2).join(" · ") : "",
+    reasons,
+    running,
+    can_start: state === "STOPPED",
+    can_resume: state === "PAUSED",
+    can_pause: manageable,
+    show_start_button: state === "STOPPED" || state === "PAUSED",
+    note_zh: state === "DEGRADED"
+      ? "模拟仍在运行,但部分数据不可用:新开仓已自动收紧"
+      : (state === "SAFE_MODE" ? "为保护账户已暂停新开仓,已有仓位仍由风控正常管理" : "")
+  };
+}

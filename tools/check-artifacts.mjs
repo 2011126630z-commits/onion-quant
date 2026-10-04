@@ -251,6 +251,25 @@ check("V16.2t 路由表唯一化 + 无效路由保留当前页 + 子页父 Tab �
 check("V16.2t 导航锁看门狗 + finishTransition 双路幂等 + UI 自恢复", /NAV_LOCK_TIMEOUT/.test(pageSrc) && /finishTransition\(handle, "raf"\)/.test(pageSrc) && /finishTransition\(handle, "timeout"\), 400\)/.test(pageSrc) && /function recoverUiNavigation\(reason\)/.test(pageSrc) && /UI_ROUTE_INVARIANT_FAILED/.test(pageSrc));
 check("V16.2t safeRender 渲染兜底(错误态+重试)与 dumpUiState 观测面", /async function safeRender\(label, fn, retry\)/.test(pageSrc) && /PAGE_RENDER_ERROR:/.test(pageSrc) && /dumpUiState: \(\) => \{/.test(pageSrc) && /mainInnerHTMLLength: mainHtmlLen/.test(pageSrc));
 
+// ---- V16.2u P0:短/长线信号溯源 + 组合暴露真接线 + Runtime 状态机 + Start 幂等 ----
+// 注意:paper/* 与 ui/viewModels 只进入 QEngine bundle(页面侧),不在 worker 产物里 → 一律对 bundle 断言。
+check("V16.2u 溯源链端到端(signal_id/strategy_intent_id/decision_id/action_source)",
+  /const sigId = String\(input\.signal_id/.test(bundle) && /const strategyIntentId = String\(input\.strategy_intent_id/.test(bundle)
+  && /signal_id: sigId,/.test(bundle) && /strategy_intent_id: strategyIntentId,/.test(bundle) && /decision_id: decisionId,/.test(bundle)
+  && /signal_id: signalId,/.test(bundle) && /strategy_intent_id: "intent_" \+ mode/.test(bundle)
+  && /signal_id: i\.signal_id == null \? null : String\(i\.signal_id\)/.test(bundle));
+check("V16.2u 组合暴露预检真接线(exposure_allow 不再写死 true)",
+  /const exposureAllow = clusterNowMargin < clusterCapMargin - 1e-9/.test(bundle) && /exposure_allow: exposureAllow,/.test(bundle) && !/exposure_allow: true,/.test(bundle));
+check("V16.2u 配额归零报真因(CLUSTER_CAP/PORTFOLIO_CAP,不误报资金不足)",
+  /const binding = \(caps\.includes\("CLUSTER_CAP"\) && clusterRoom <= capEps\(\)\) \? "CLUSTER_CAP"/.test(bundle) && /code: binding \|\| \(usdt <= capEps\(\) \? "LIQUIDITY_EMPTY" : "BELOW_MIN"\)/.test(bundle));
+check("V16.2u Runtime 状态机统一(7 态 + RUNNING 不显示开始按钮)",
+  /PAPER_RUNTIME_STATES = \["STOPPED", "STARTING", "RUNNING", "PAUSED", "DEGRADED", "SAFE_MODE", "HARD_STOP"\]/.test(bundle)
+  && /show_start_button: state === "STOPPED" \|\| state === "PAUSED"/.test(bundle)
+  && /startBtn\.hidden = !rv\.show_start_button;/.test(pageSrc));
+check("V16.2u Start 幂等(连点 10 次只执行一次;后台已运行不重复拉起)",
+  /async function startPaperFromHome\(\)/.test(pageSrc) && /if \(paperStartBusy\) return \{ ok: false, reason: "busy" \}/.test(pageSrc)
+  && /already_running_background/.test(pageSrc) && /runtimeView: \(\) => \{/.test(bundle));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
 console.log("ARTIFACT CHECKS OK");

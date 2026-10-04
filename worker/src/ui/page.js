@@ -524,6 +524,8 @@ export const page = String.raw`<!doctype html>
       /* 手机端操作区:2+1 布局(三个大按钮不硬塞一行) */
       .hm-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px 0 4px; }
       .hm-actions button { flex: 1 1 calc(50% - 5px); min-width: 0; min-height: 46px; border-radius: 12px; }
+      /* V16.2u:按钮显隐由统一呈现态驱动;[hidden] 必须真的不显示(.sec 的 inline-flex 会覆盖 UA 默认) */
+      .hm-actions button[hidden] { display: none !important; }
       .sec-title { font-size: 12px; color: var(--muted); margin: 16px 2px 4px; letter-spacing: .3px; }
       .mk-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 2px; border-bottom: 1px solid var(--line); cursor: pointer; }
       .mk-row:active { background: var(--panel-2); }
@@ -4251,6 +4253,7 @@ export const page = String.raw`<!doctype html>
       let dtPollTimer = null;   // V18:详情页降级轮询(单例;只有推送不可用时才真正发请求)
       let dtSecTimer = null;    // V18:Current Candle 收盘倒计时(每秒)
       let fabIdleTimer = 0;     // V19:AI FAB 避让 —— 滚动时淡出,停下 600ms 恢复
+      let paperStartBusy = false;   // V16.2u:Start/Pause 幂等防抖(连点 10 次只执行一次)
       let taskBag = null;
       let currentPage = "home";
 
@@ -4605,12 +4608,43 @@ export const page = String.raw`<!doctype html>
         setText("hmRisk", vm.risk_level + (vm.risk_score == null ? "" : " " + vm.risk_score));
         setText("hmState", vm.state_label);
         setText("hmLearning", vm.learning_status);
+        // V16.2u §3/§34/§40:统一呈现态 —— 标签与按钮来自【同一来源】(引擎 runtimeView + 终态镜像),
+        // 不再出现"显示自动运行中却还能点开始模拟"的双源不一致。
+        const rv = homeRuntimeView(eng, snapshot);
+        setText("hmState", rv.label + (rv.reason_short ? " · " + rv.reason_short : ""));
         const startBtn = $("hmStartBtn");
         const pauseBtn = $("hmPauseBtn");
-        if (startBtn) startBtn.disabled = vm.running || snapshot.state === "STARTING" || snapshot.state === "RECOVERING";
-        if (pauseBtn) pauseBtn.disabled = !vm.running;
-        if (startBtn) startBtn.textContent = snapshot.state === "PAUSED" ? "继续模拟" : "开始模拟";
+        // RUNNING / DEGRADED / SAFE_MODE / HARD_STOP:开始按钮直接隐藏(不是"淡一下还能点")
+        if (startBtn) {
+          startBtn.hidden = !rv.show_start_button;
+          startBtn.disabled = Boolean(paperStartBusy) || rv.state === "STARTING";
+          startBtn.textContent = rv.can_resume ? "继续模拟" : "开始模拟";
+        }
+        if (pauseBtn) {
+          pauseBtn.hidden = !rv.can_pause;
+          pauseBtn.disabled = Boolean(paperStartBusy);
+        }
         return vm;
+      }
+      // 呈现态输入:本地引擎权威;Native 壳里若后台运行时已 RUNNING/PAUSED,以后台为准(避免双源打架)
+      function homeRuntimeView(eng, snapshot) {
+        let ev = { state: (snapshot && snapshot.state) || "STOPPED" };
+        try {
+          if (eng && typeof eng.runtimeView === "function") ev = eng.runtimeView();
+        } catch (error) { /* 读取失败按基础态展示 */ }
+        let svc = null;
+        try { svc = readRuntimeStatus(); } catch (error) { svc = null; }
+        const svcAuthoritative = window.__quantNativeShell === true && svc && (svc.state === "RUNNING" || svc.state === "PAUSED");
+        return QE.paperRuntimeView({
+          engine_state: svcAuthoritative ? svc.state : ev.state,
+          entries_paused: Boolean(ev.entries_paused),
+          entries_paused_reason: ev.entries_paused_reason,
+          hwm_block: Boolean(ev.hwm_block),
+          hwm_drawdown_pct: ev.hwm_drawdown_pct,
+          data_degraded: ev.data_quality_ok === false,
+          market_stale: Boolean(svc && svc.market_stale),
+          runtime_stalled: Boolean(svc && (svc.stalled || svc.strategy_stalled))
+        });
       }
 
       // V19 模拟页统计:上半 = 2 列指标卡(净收益·手续费 / 胜率·Profit Factor / 最大回撤·平均持仓 / 交易次数·Fee Drag),
@@ -9091,6 +9125,50 @@ export const page = String.raw`<!doctype html>
         paperLoopTimer = setInterval(() => { void taskBag.runOnce("paper-loop"); }, 300000);
       }
 
+      // ================= V16.2u:Paper Start/Pause 幂等入口 =================
+      // 规范:连续点击 10 次 Start,只能存在 1 个 Runtime / 1 套 Market·Strategy·Risk Loop,
+      // 不允许出现重复 Timer / Listener / Runtime;后台服务已运行时,前台不重复拉起。
+      async function startPaperFromHome() {
+        if (paperStartBusy) return { ok: false, reason: "busy" };   // 第二次点击直接忽略
+        paperStartBusy = true;
+        try {
+          void renderHome();                                       // 立刻切到"启动中"(按钮禁用)
+          const svc = (() => { try { return readRuntimeStatus(); } catch (error) { return null; } })();
+          if (window.__quantNativeShell === true && svc && svc.state === "RUNNING") {
+            toast("后台模拟已在运行");
+            return { ok: true, reason: "already_running_background" };
+          }
+          const eng = await getPaperEngine();
+          const st = eng.getState();
+          if (st === "RUNNING" || st === "STARTING" || st === "RECOVERING") {
+            toast("模拟已在运行");
+            return { ok: true, reason: "already_running", state: st };
+          }
+          const res = st === "PAUSED" ? await eng.resume() : await eng.start();
+          startPaperLoop();                                        // 本身幂等:已有 timer 则忽略
+          void paperLoopTick();
+          return res;
+        } finally {
+          paperStartBusy = false;
+          void renderHome();
+        }
+      }
+      async function pausePaperFromHome() {
+        if (paperStartBusy) return { ok: false, reason: "busy" };
+        paperStartBusy = true;
+        try {
+          const eng = await getPaperEngine();
+          if (eng.getState() !== "RUNNING") {
+            toast("模拟未在运行");
+            return { ok: false, reason: "not_running", state: eng.getState() };
+          }
+          return await eng.pause("用户暂停");
+        } finally {
+          paperStartBusy = false;
+          void renderHome();
+        }
+      }
+
       // ---- Retention:长期挂机数据不会无限增长 ----
       async function runRetention() {
         try {
@@ -9551,18 +9629,9 @@ export const page = String.raw`<!doctype html>
         });
         $("openNtfSettings").addEventListener("click", openNtfSettings);
         $("ntfsetBackBtn").addEventListener("click", () => { void goBack(); });
-        $("hmStartBtn").addEventListener("click", async () => {
-          const eng = await getPaperEngine();
-          if (eng.getState() === "PAUSED") await eng.resume(); else await eng.start();
-          startPaperLoop();
-          void paperLoopTick();
-          await renderHome();
-        });
-        $("hmPauseBtn").addEventListener("click", async () => {
-          const eng = await getPaperEngine();
-          await eng.pause("用户暂停");
-          await renderHome();
-        });
+        // V16.2u §3:Start/Pause 走幂等入口(连点 10 次只有一次真正执行;不重复拉起 Runtime/Loop)
+        $("hmStartBtn").addEventListener("click", () => { void startPaperFromHome(); });
+        $("hmPauseBtn").addEventListener("click", () => { void pausePaperFromHome(); });
         $("dtBackBtn").addEventListener("click", () => { void goBack(); });
         $("dtRefreshBtn").addEventListener("click", () => { void refreshDetail(); });
         // V16.2s:星标(详情页)与市场/搜索共用同一 Watchlist Store

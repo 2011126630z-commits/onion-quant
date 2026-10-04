@@ -38,6 +38,11 @@ export function decisionEntry(input) {
     mode: i.mode || null,
     action: i.action || kind,
     action_source: i.action_source || "AUTO",
+    // V16.2u §3/§18:溯源链随决策记录一起留档(哪个信号→哪个策略意图→哪次决策→哪个仓位)
+    signal_id: i.signal_id == null ? null : String(i.signal_id),
+    strategy_intent_id: i.strategy_intent_id == null ? null : String(i.strategy_intent_id),
+    decision_id: i.decision_id == null ? null : String(i.decision_id),
+    position_id: i.position_id == null ? null : String(i.position_id),
     why: String(i.why == null ? "" : i.why).slice(0, 300),
     rule: { direction: rule.direction || null, confidence: num(rule.confidence, null), strength: rule.strength || null },
     ml: ml ? { version: ml.version || null, probability: num(ml.probability, null), used: Boolean(ml.used) } : null,

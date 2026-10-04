@@ -14,9 +14,9 @@
 
 ```
 Latest APK:  apk/app-latest.apk   (Releases 附件同名 app-latest.apk)
-Version:     v16.2t(16.2.0-paper)
-Size:        4.84 MB (5,075,615 bytes)
-SHA256:      b703d7131e73432b175c6e3f3b64175dee4a3f2d689fad857f69db1bc1162623
+Version:     v16.2u(16.2.0-paper)
+Size:        4.84 MB (5,078,868 bytes)
+SHA256:      a45fc0552bdde2278d1453e3cc3b2b039cb1b4499d868dc88d70b2508a569122
 ```
 
 - **PAPER ONLY**:无真实 API Key、无真实下单;应用内所有"开仓/平仓"都发生在本地模拟账户。
@@ -50,6 +50,7 @@ APK 发布流程(本仓库约定):`构建 → 测试通过 → 复制到 apk/app
 
 | 版本 | 要点 |
 |---|---|
+| v16.2u | P0 审计首轮:全链路溯源(signal_id/strategy_intent_id/decision_id)、组合暴露预检真接线(EXPOSURE_CAP)、Runtime 统一 7 态与 Start 幂等(连点 10 次只 1 实例/1 Loop) |
 | v16.2t | P0"只剩底部导航栏"根因修复(正文可见性不再依赖动画)+路由表/导航看门狗/渲染兜底/自恢复/故障注入全量加固 |
 | v16.2s | 点击延迟专修(先绘制后重活/Shell 先行/返回不等网络)、系统状态逐项可展开、市场↔自选分段控件与统一自选 Store、K线 pinch 方向与锚点修复、手势状态机与冻结看守、四档宽度零溢出 |
 | v16.2 | 课堂式手机 UI:黑白闪屏修复、返回状态连续性(滚动逐像素恢复/返回栈)、按钮体系统一 |
