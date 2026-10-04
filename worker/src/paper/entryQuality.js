@@ -35,6 +35,8 @@ export const NO_TRADE_ZH = {
   HIGH_UNCERTAINTY: "不确定性过高",
   COST_DOMINATES: "手续费吃掉边际",
   SKIP_LOW_NET_EDGE: "扣费后净边际过低",
+  SKIP_FEE_DRAG: "费用吃掉边际(净收益无实际价值)",
+  LOW_RULE_CONFIDENCE: "规则方向置信度不足(方向不明确)",
   EDGE_UNKNOWN: "缺少波动率,净边际无法估算",
   LOW_ENTRY_SCORE: "开仓质量分不足",
   BELOW_MIN_MEANINGFUL: "仓位小到没有意义",
@@ -59,6 +61,7 @@ export const ENTRY_QUALITY_RULES = {
   max_uncertainty: 0.72,
   min_data_quality: 60,        // 0~100
   min_entry_score: 55,         // 0~100
+  min_rule_confidence: 45,     // V16.2v:规则方向置信度 < 45 → 方向不明确,直接 NO_TRADE(别为开仓而开仓)
   min_samples: 30,
   unknown_edge_uncertainty: 0.25,
   blame_uncertainty_penalty: 0.35,
@@ -257,6 +260,13 @@ export function entryQuality(input) {
   if (o.risk_allow === false) blockers.push("RISK_VETO");
   if (o.sample_count != null && eqFnum(o.sample_count) < rules.min_samples) blockers.push("INSUFFICIENT_SAMPLES");
   if (o.exposure_allow === false) blockers.push("EXPOSURE_CAP");
+  // V16.2v §6/§8:规则方向置信度门槛 —— 综合分把"任一方向占优"记为高质量(ruleQuality 只看分布形状),
+  // 弱置信(例如 22/100)"方向不明确"却可能拿满分;这里显式要求方向有最低明确度,否则宁可不交易。
+  {
+    const ruleScoreRaw = o.rule && o.rule.score != null ? eqFnum(o.rule.score, null) : null;
+    const conviction = ruleScoreRaw == null ? null : Math.abs(ruleScoreRaw);
+    if (conviction != null && conviction < eqFnum(rules.min_rule_confidence, 45)) blockers.push("LOW_RULE_CONFIDENCE");
+  }
 
   // 7) 综合分
   const w = rules.weights;
@@ -332,14 +342,25 @@ export function minimumMeaningfulPosition(input) {
   const minNotional = Math.max(...candidates);
   const requestedNotional = o.requested_notional == null ? null : eqFnum(o.requested_notional, null);
   const below = requestedNotional != null && requestedNotional + 1e-9 < minNotional;
-  // 这里只回答"这个仓位值不值得开(是否小到没有意义)";
+  // V16.2v §9/§10:成本吃掉边际 → 机会没有实际价值(此前 max_cost_ratio_of_edge 是【死规则】,
+  // 定义了却从未生效):费用+滑点占总优势(毛边际)比例超过阈值 = 这一单的净收益没有实际意义,
+  // 即使方向判断正确也应 SKIP,而不是开一个"只赚 0.00x USDT"的蚂蚁仓。
+  const edgeCostRaw = o.cost_pct;
+  const costPct = edgeCostRaw == null || edgeCostRaw === "" ? null : (Number.isFinite(Number(edgeCostRaw)) ? Number(edgeCostRaw) : null);
+  const grossPct = (netEdgePct != null && costPct != null) ? netEdgePct + costPct : null;
+  const costRatio = grossPct != null && grossPct > DENOM_EPS ? costPct / grossPct : null;
+  const costEatsEdge = costRatio != null && costRatio > eqFnum(rules.max_cost_ratio_of_edge, 0.5);
+  // 这里只回答"这个仓位值不值得开(是否小到没有意义 / 成本是否吃掉边际)";
   // 边际是否为负是 Entry Quality Gate 的职责(避免同一件事被两处判死)
   return {
-    feasible: !below,
-    reason: below ? "BELOW_MIN_MEANINGFUL" : "ok",
+    feasible: !below && !costEatsEdge,
+    reason: costEatsEdge ? "FEE_DRAG_TOO_HIGH" : (below ? "BELOW_MIN_MEANINGFUL" : "ok"),
     min_notional: minNotional,
     requested_notional: requestedNotional,
     required_net_profit_usdt: requiredNet,
+    cost_pct: costPct,
+    gross_edge_pct: grossPct,
+    cost_ratio_of_edge: costRatio == null ? null : Math.round(costRatio * 1000) / 1000,
     expected_net_profit_usdt: netEdgePct == null || requestedNotional == null ? null : requestedNotional * netEdgePct / 100
   };
 }

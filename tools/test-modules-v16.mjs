@@ -54,7 +54,12 @@ console.log("== A. PORTFOLIO RISK CONTROLLER ==");
   const inDrawdown = portfolioRisk({ account: { total_equity: 70, peak_equity: 100, initial_balance: 100 }, drawdown_pct: 30 });
   eq("当前回撤 30% → HARD_STOP", inDrawdown.risk_level, "HARD_STOP");
   const exposure = portfolioRisk({ account: { total_equity: 100 }, positions: [{ status: "OPEN", symbol: "BTCUSDT", side: "LONG", remaining_margin: 40, leverage: 1, unrealized_pnl: 0 }] });
-  check("单币暴露超限被记录", exposure.exposure_violations.some((v) => v.symbol === "BTCUSDT"), JSON.stringify(exposure.exposure_violations));
+  // §67 更新说明:旧断言把"35% 提示阈值"当成"拦截阈值"(exposure_violations)。
+  // V16.2v 拆成两级:35% → exposure_warnings(记录集中度,供诊断/UI);100% → exposure_violations(单币爆仓敞口硬闸)。
+  // 旧实现把提示当拦截,与"单仓保证金 40% × 2 倍杠杆 = 80% 名义"的政策自相矛盾(意义化仓位一开就被否决)。
+  check("单币暴露超提示线被记录(35% 提示级)", exposure.exposure_warnings.some((v) => v.symbol === "BTCUSDT") && exposure.exposure_violations.length === 0, JSON.stringify({ w: exposure.exposure_warnings, v: exposure.exposure_violations }));
+  const exposureCap = portfolioRisk({ account: { total_equity: 100 }, positions: [{ status: "OPEN", symbol: "BTCUSDT", side: "LONG", remaining_margin: 60, leverage: 1, unrealized_pnl: 0 }, { status: "OPEN", symbol: "BTCUSDT", side: "LONG", remaining_margin: 45, leverage: 1, unrealized_pnl: 0 }] });
+  check("单币暴露超 100% 硬闸被拦截并记录", exposureCap.exposure_violations.some((v) => v.symbol === "BTCUSDT"), JSON.stringify(exposureCap.exposure_violations));
   const veto = riskVetoForCandidate({ symbol: "ETHUSDT", leverage: 8, notional: 50 }, normal);
   check("候选否决:杠杆超上限+超风险预算", !veto.allow && veto.reasons.length >= 2, JSON.stringify(veto));
   const pass = riskVetoForCandidate({ symbol: "ETHUSDT", leverage: 2, notional: 5 }, normal);

@@ -270,6 +270,23 @@ check("V16.2u Start 幂等(连点 10 次只执行一次;后台已运行不重复
   /async function startPaperFromHome\(\)/.test(pageSrc) && /if \(paperStartBusy\) return \{ ok: false, reason: "busy" \}/.test(pageSrc)
   && /already_running_background/.test(pageSrc) && /runtimeView: \(\) => \{/.test(bundle));
 
+// ---- V16.2v:动态币种池 / 资金与损失分离 / 资金效率 / 费用吃掉边际 ----
+const hostSrc = fs.readFileSync(path.join(ROOT, "tools/runtime-host.js"), "utf8");
+check("V16.2v 动态币种池进入产物与后台运行时(不再是写死 5 币)",
+  /buildScan/.test(bundle) && /selectActiveSymbols/.test(bundle) && /estimateSpreadBps/.test(bundle)
+  && /refreshUniverse/.test(hostSrc) && !/candidateSymbols: \(\) => \["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"\]/.test(hostSrc));
+check("V16.2v 资金与损失分离(风险预算÷止损×杠杆 → 保证金;40% 硬顶保留)",
+  /riskBudget \/ \(stopFrac \* levForCap\)/.test(bundle) && /poolEquity \* CAPITAL_LIMITS\.max_single_position_pct \/ 100/.test(bundle));
+check("V16.2v 费用吃掉边际规则真正生效(此前 max_cost_ratio_of_edge 是死规则)",
+  /costEatsEdge/.test(bundle) && /FEE_DRAG_TOO_HIGH/.test(bundle) && /SKIP_FEE_DRAG/.test(bundle));
+check("V16.2v 方向置信度门槛(低置信 → LOW_RULE_CONFIDENCE 不交易)",
+  /min_rule_confidence: 45/.test(bundle) && /LOW_RULE_CONFIDENCE/.test(bundle));
+check("V16.2v 资金效率(母仓口径)进入产物 + 平仓挂指标",
+  /capitalEfficiencyOf/.test(bundle) && /capital_efficiency = eff/.test(bundle) && /LOW_CAPITAL_EFFICIENCY|low_capital_efficiency/.test(bundle));
+check("V16.2v 市场扫描面板 + 宇宙健康诊断 + 候选来自短名单",
+  /id="mkScanPanel"/.test(pageSrc) && /diagUniverseBox/.test(pageSrc) && /refreshUniverseScan/.test(pageSrc)
+  && /scan\.shortlist/.test(pageSrc) && /universe: uni/.test(hostSrc));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
 console.log("ARTIFACT CHECKS OK");

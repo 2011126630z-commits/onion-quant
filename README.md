@@ -14,9 +14,9 @@
 
 ```
 Latest APK:  apk/app-latest.apk   (Releases 附件同名 app-latest.apk)
-Version:     v16.2u(16.2.0-paper)
-Size:        4.84 MB (5,078,868 bytes)
-SHA256:      a45fc0552bdde2278d1453e3cc3b2b039cb1b4499d868dc88d70b2508a569122
+Version:     v16.2v(16.2.0-paper)
+Size:        4.85 MB (5,086,905 bytes)
+SHA256:      86c1b96ae0741e5b8455ef711412675a9b03973fc2796208ff7a53f0969fb659
 ```
 
 - **PAPER ONLY**:无真实 API Key、无真实下单;应用内所有"开仓/平仓"都发生在本地模拟账户。
@@ -50,6 +50,7 @@ APK 发布流程(本仓库约定):`构建 → 测试通过 → 复制到 apk/app
 
 | 版本 | 要点 |
 |---|---|
+| v16.2v | 动态币种池(40 扫描/31 候选/深度 ≤10,真实山寨进入)、市场扫描面板与宇宙健康诊断、资金与损失分离(蚂蚁仓根因)、费用吃掉边际/低置信门槛、母仓资金效率 |
 | v16.2u | P0 审计首轮:全链路溯源(signal_id/strategy_intent_id/decision_id)、组合暴露预检真接线(EXPOSURE_CAP)、Runtime 统一 7 态与 Start 幂等(连点 10 次只 1 实例/1 Loop) |
 | v16.2t | P0"只剩底部导航栏"根因修复(正文可见性不再依赖动画)+路由表/导航看门狗/渲染兜底/自恢复/故障注入全量加固 |
 | v16.2s | 点击延迟专修(先绘制后重活/Shell 先行/返回不等网络)、系统状态逐项可展开、市场↔自选分段控件与统一自选 Store、K线 pinch 方向与锚点修复、手势状态机与冻结看守、四档宽度零溢出 |

@@ -12,7 +12,11 @@ export const CAPITAL_LIMITS = {
   max_single_position_pct: 40,        // 单仓保证金 / 可交易资金
   max_portfolio_margin_pct: 100,      // 全部仓位保证金合计 / 可交易资金
   max_notional_exposure_pct: 300,     // 名义暴露 / 净值(仅展示与告警,不是资金占用上限)
-  cluster_same_direction_pct: 80,     // 同一 beta 阵营 + 同方向 的合计占用上限
+  cluster_same_direction_pct: 50, // V16.2v:同一 beta 阵营 + 同方向 的【真实保证金(gross)】合计上限(% 权益)。
+                                  // 说明:组合上限用的是相关度加权(adj≈2×gross),它会在 gross≥50 时先绑定,
+                                  // 因此"同向阵营"若继续用加权口径就永远轮不到生效。这里改为 gross 口径独立设限:
+                                  // 同向相关总保证金 ≤50% 权益(≈两根 25% 仓;40%+40% 在第二仓即被拦)。
+                                  // 加权组合上限(100)继续负责"40%×3 也不行"的跨阵营总量约束。
   high_corr_threshold: 0.75,          // 相关度 ≥ 该值视为同一份风险
   corr_penalty_weight: 1.0,
   min_alloc_pct: 1.0,
@@ -117,6 +121,7 @@ export function effectiveExposure(positions, opts) {
   const corrOf = o.correlationOf || (() => null);
   const rows = (positions || []).filter((p) => p && (p.status === "OPEN" || p.status === "CLOSING"));
   const byCluster = {};
+  const byClusterGross = {};
   let gross = 0;
   let adjusted = 0;
   for (const p of rows) {
@@ -142,8 +147,9 @@ export function effectiveExposure(positions, opts) {
     adjusted += eff;
     const key = cluster + "|" + dir;
     byCluster[key] = (byCluster[key] || 0) + eff;
+    byClusterGross[key] = (byClusterGross[key] || 0) + margin;   // V16.2v:真实(未加权)同向保证金
   }
-  return { gross_margin: gross, adjusted_exposure: adjusted, by_cluster: byCluster, open_count: rows.length };
+  return { gross_margin: gross, adjusted_exposure: adjusted, by_cluster: byCluster, by_cluster_gross: byClusterGross, open_count: rows.length };
 }
 
 // 统一资金分配:质量 → 上限 → 组合 → 相关性 → 回撤 → 可用现金
@@ -177,9 +183,9 @@ export function capitalAllocation(input) {
   const notionalNow = notionalExposureOf(o.positions);
   const notionalWarn = (notionalNow + newMargin * capFnum(o.leverage, 1)) > equity * limits.max_notional_exposure_pct / 100;
 
-  // 同向相关阵营上限
+  // 同向相关阵营上限(真实保证金口径;见 CAPITAL_LIMITS.cluster_same_direction_pct 注释)
   const key = clusterOfSymbol(target.symbol, o.clusters) + "|" + target.direction;
-  const clusterNow = capFnum(expo.by_cluster[key], 0);
+  const clusterNow = capFnum(expo.by_cluster_gross ? expo.by_cluster_gross[key] : expo.by_cluster[key], 0);
   const clusterRoom = Math.max(0, equity * limits.cluster_same_direction_pct / 100 - clusterNow);
   if (equity * pct / 100 > clusterRoom) {
     pct = equity > capEps() ? Math.max(0, clusterRoom / equity * 100) : 0;

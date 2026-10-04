@@ -895,6 +895,11 @@ export const page = String.raw`<!doctype html>
       .mk-row .mk-chg { width: 76px; min-width: 76px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
       .mk-row .star { margin: -8px -2px -8px 0; }
       .mk-empty { padding: 26px 12px; text-align: center; color: var(--text-secondary); font-size: 12.5px; line-height: 1.7; }
+      /* V16.2v 市场扫描面板:紧凑行(继续用 Design Tokens,不新造颜色) */
+      .scan-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border); min-width: 0; }
+      .scan-row:last-child { border-bottom: none; }
+      .scan-row .scan-main { min-width: 0; }
+      .scan-row .scan-side { font-size: 12px; color: var(--text-secondary); white-space: nowrap; flex: 0 0 auto; }
       /* Accordion:统一展开/收起(0fr→1fr 高度动画,不写死高度);箭头 160-180ms 旋转 */
       .acc-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms ease; }
       .acc-body > .acc-inner { overflow: hidden; min-height: 0; }
@@ -1533,6 +1538,10 @@ export const page = String.raw`<!doctype html>
           <h2 style="margin-bottom:6px">关键错误(资金 / 账本 / 崩溃)</h2>
           <div id="diagP0List"></div>
         </div>
+        <div class="card" id="diagUniverseCard" style="margin-bottom:10px">
+          <h2 style="margin-bottom:6px">宇宙健康 · Universe Health</h2>
+          <div id="diagUniverseBox"></div>
+        </div>
         <div class="card" style="margin-bottom:10px">
           <h2 style="margin-bottom:6px">面包屑时间线</h2>
           <div id="diagCrumbs"></div>
@@ -1593,6 +1602,12 @@ export const page = String.raw`<!doctype html>
         <div class="search-wrap">
           <input id="mkSearch" type="text" placeholder="搜索币种,如 BTC" autocomplete="off" />
           <div id="mkSuggest" class="suggest"></div>
+        </div>
+        <div class="card hidden" id="mkScanPanel">
+          <div class="hm-row"><span class="k">市场扫描</span><span class="v" id="mkScanCounts">--</span></div>
+          <div class="v-note" id="mkScanNote"></div>
+          <div id="mkScanRows"></div>
+          <button id="mkScanMore" class="sec hidden" type="button">展开全部</button>
         </div>
         <div class="seg" id="mkSeg" data-seg="market" role="tablist" aria-label="市场与自选">
           <span class="seg-thumb" aria-hidden="true"></span>
@@ -4248,6 +4263,7 @@ export const page = String.raw`<!doctype html>
       let paperApi = null;
       let paperLoopTimer = null;
       let homeTimer = null;
+      let universeTimer = null;   // V16.2v:动态币种池扫描(10 分钟一轮)
       let retentionTimer = null;
       let riskTimer = null;
       let dtPollTimer = null;   // V18:详情页降级轮询(单例;只有推送不可用时才真正发请求)
@@ -4843,6 +4859,7 @@ export const page = String.raw`<!doctype html>
         if (!rows.length) box.appendChild(vEl("div", "mk-empty", "暂时读不到行情,稍后再试"));
         for (const t of rows) box.appendChild(marketRowEl(t));
         renderWatchList(list);
+        renderMarketScan();
         return rows;
       }
 
@@ -8202,6 +8219,34 @@ export const page = String.raw`<!doctype html>
           p0Card.classList.add("kd-hide");
         }
 
+        // V16.2v §17:Universe Health(动态币种池诊断;若"连续只扫 4 个币"必须能在这里被发现)
+        try {
+          const uniBox = $("diagUniverseBox");
+          if (uniBox) {
+            uniBox.replaceChildren();
+            const scan = viewState.universeScan;
+            const host = (() => { try { const rt = readRuntimeStatus(); return rt && rt.universe ? rt.universe : null; } catch (error) { return null; } })();
+            const rowOf = (k, v) => { const el = vEl("div", "hm-row"); el.appendChild(vEl("span", "k", k)); el.appendChild(vEl("span", "v", String(v))); return el; };
+            if (host) {
+              uniBox.appendChild(rowOf("后台运行时扫描", (host.scanned || 0) + " 币(上次 " + (host.at ? new Date(host.at).toLocaleTimeString() : "--") + ")"));
+              uniBox.appendChild(rowOf("后台深度名单", (host.shortlist || []).join("、") || "--"));
+              if (host.error) uniBox.appendChild(vEl("div", "v-note", "上次扫描错误:" + String(host.error)));
+            } else {
+              uniBox.appendChild(rowOf("后台运行时扫描", "无数据(浏览器模式或服务未启动)"));
+            }
+            if (scan) {
+              const view = QE.universeView(scan.universe);
+              const cnt = view.counts;
+              uniBox.appendChild(vEl("div", "v-note", "本机扫描 " + (scan.counts.scanned || 0) + " 币 · " + view.headline_zh));
+              uniBox.appendChild(rowOf("核心 / 候选 / 观察", cnt.core + " / " + cnt.candidate + " / " + cnt.watch));
+              uniBox.appendChild(rowOf("预热 / 仅观察 / 暂停", cnt.warming_up + " / " + cnt.observe_only + " / " + cnt.suspended));
+              uniBox.appendChild(rowOf("深度分析名单", (scan.shortlist || []).map((r) => r.symbol).join("、") || "--"));
+            } else {
+              uniBox.appendChild(vEl("div", "v-note", "本机尚无扫描记录(运行时启动后 10 分钟内出现)"));
+            }
+          }
+        } catch (error) { diagLog("diag-universe", error); }
+
         // 面包屑时间线(最早的在上,最近的在下)
         const crumbBox = $("diagCrumbs");
         crumbBox.replaceChildren();
@@ -8787,8 +8832,122 @@ export const page = String.raw`<!doctype html>
       }
 
       // 候选币池:详情页币 + 自选 + 主流币(去重后限量,避免请求失控)
+      // V16.2v:动态币种池 —— 候选来自扫描短名单(不再写死几大币);
+      // 冷启动(首轮扫描未完成)退回核心币兜底;详情币/自选永远在内。
       function candidateSymbols() {
-        return [...new Set([viewState.detailSymbol, ...state.watch, ...MARKET_SYMBOLS.slice(0, 4)])].filter(Boolean).slice(0, 6);
+        const out = [];
+        const seen = new Set();
+        const push = (s) => { const k = String(s || "").toUpperCase(); if (k && !seen.has(k)) { seen.add(k); out.push(k); } };
+        const scan = viewState.universeScan;
+        if (scan && Array.isArray(scan.shortlist)) for (const row of scan.shortlist) push(row && row.symbol);
+        push(viewState.detailSymbol);
+        for (const s of state.watch) push(s);
+        for (const s of ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"]) push(s);
+        return out.slice(0, 10);
+      }
+
+      // V16.2v:一轮动态宇宙扫描(Level 1 轻扫 40 → 池子门槛 → 深度名单 ≤10)
+      // 数据源:真实 tickers(成交额/涨跌幅) + 真实 4h K 线根数;spread/depth 为保守估算(UI 已标注)。
+      async function refreshUniverseScan(force) {
+        const nowMs = Date.now();
+        if (!force && viewState.universeScan && nowMs - viewState.universeScan.at < 600000) return viewState.universeScan;
+        try {
+          let tickers = Array.isArray(viewState.lastTickers) ? viewState.lastTickers : [];
+          if (force || !tickers.length) {
+            try { const fresh = await api("tickers?market=futures", 2, 10000); if (Array.isArray(fresh) && fresh.length) tickers = fresh; } catch (error) { diagLog("universe-tickers", error); }
+          }
+          const scanMax = (QE.SCAN_LIMITS && QE.SCAN_LIMITS.scan_max_symbols) || 40;
+          const top = tickers
+            .filter((t) => t && /^[A-Z0-9]{4,24}USDT$/.test(String(t.symbol || "")))
+            .sort((a, b) => Number(b.quoteVolume || 0) - Number(a.quoteVolume || 0))
+            .slice(0, scanMax);
+          const klinesBySymbol = {};
+          const CONC = 6;
+          for (let i = 0; i < top.length; i += CONC) {
+            await Promise.all(top.slice(i, i + CONC).map(async (t) => {
+              const symbol = String(t.symbol || "");
+              if (!symbol) return;
+              try {
+                const rows = await api("klines?market=futures&symbol=" + symbol + "&interval=4h&limit=200", 1, 9000);
+                if (Array.isArray(rows) && rows.length) klinesBySymbol[symbol] = rows;
+              } catch (error) { /* 单币失败不影响整轮 */ }
+            }));
+          }
+          let holdings = [];
+          try {
+            const eng = await getPaperEngine();
+            holdings = (eng.getPositions ? eng.getPositions() : []).filter((p) => p && (p.status === "OPEN" || p.status === "CLOSING")).map((p) => p.symbol);
+            const qlog = eng.entryQualityLog ? eng.entryQualityLog() : [];
+            const bySym = {};
+            for (const q of qlog) if (q && q.symbol) bySym[String(q.symbol)] = q;
+            viewState.qualityBySymbol = bySym;
+          } catch (error) { /* 引擎读取失败不阻断扫描 */ }
+          const scan = QE.buildScan({ tickers: top, klinesBySymbol, holding: holdings, now: nowMs });
+          viewState.universeScan = scan;
+          devPerf.note("universe:" + scan.counts.scanned + "→" + scan.counts.deep_analysis);
+          renderMarketScan();
+          return scan;
+        } catch (error) {
+          diagLog("universe-scan", error);
+          return viewState.universeScan || null;
+        }
+      }
+
+      // V16.2v §5/§16:【市场扫描】面板 —— "到底扫了什么 / 为什么没通过 / 几个达到入场条件"
+      function renderMarketScan() {
+        const panel = $("mkScanPanel");
+        if (!panel) return;
+        const scan = viewState.universeScan;
+        if (!scan) { panel.classList.add("hidden"); return; }
+        panel.classList.remove("hidden");
+        const c = scan.counts || {};
+        const q = viewState.qualityBySymbol || {};
+        const shortset = new Set((scan.shortlist || []).map((r) => r.symbol));
+        let opp = 0;
+        for (const r of (scan.shortlist || [])) {
+          const d = q[r.symbol];
+          if (d && d.allow_entry === true) opp += 1;
+        }
+        const cnt = $("mkScanCounts");
+        if (cnt) cnt.textContent = "扫描 " + (c.scanned || 0) + " · 候选 " + ((c.candidate || 0) + (c.core || 0)) + " · 深度 " + (c.deep_analysis || 0) + " · 机会 " + opp;
+        const note = $("mkScanNote");
+        if (note) note.textContent = "更新 " + new Date(scan.at).toLocaleTimeString() + " · 数据源 " + String(scan.source || "--") + "(价差/深度为保守估算,非真实盘口)";
+        const rowsBox = $("mkScanRows");
+        if (!rowsBox) return;
+        const expanded = viewState.scanExpanded === true;
+        const all = (scan.universe && scan.universe.all) || [];
+        const entries = all.slice().sort((a, b) => {
+          const aS = shortset.has(a.symbol) ? 1 : 0;
+          const bS = shortset.has(b.symbol) ? 1 : 0;
+          if (aS !== bS) return bS - aS;
+          const aA = a.state === "ACTIVE" ? 1 : 0;
+          const bA = b.state === "ACTIVE" ? 1 : 0;
+          if (aA !== bA) return bA - aA;
+          return (b.score || 0) - (a.score || 0);
+        });
+        const limit = expanded ? entries.length : Math.min(entries.length, 12);
+        rowsBox.replaceChildren();
+        for (const e of entries.slice(0, limit)) {
+          const row = vEl("div", "scan-row");
+          const main = vEl("div", "scan-main");
+          main.appendChild(vEl("div", "sym", String(e.symbol || "").replace("USDT", "/USDT")));
+          const pr = QE.primaryReasonZh(e);
+          let statusZh = pr.state_zh;
+          let reasonZh = pr.detail_zh;
+          if (shortset.has(e.symbol)) statusZh = "深度分析";
+          const d = q[e.symbol];
+          if (d && d.allow_entry === true) { statusZh = "通过"; reasonZh = "达到入场条件"; }
+          else if (d && d.allow_entry === false && Array.isArray(d.block_reasons_zh) && d.block_reasons_zh.length) { statusZh = "未过"; reasonZh = d.block_reasons_zh[0]; }
+          main.appendChild(vEl("div", "coin-sub", statusZh + (reasonZh ? " · " + reasonZh : "")));
+          row.appendChild(main);
+          row.appendChild(vEl("div", "scan-side", "分 " + (pr.score || 0)));
+          rowsBox.appendChild(row);
+        }
+        const more = $("mkScanMore");
+        if (more) {
+          more.classList.toggle("hidden", entries.length <= 12);
+          more.textContent = expanded ? "收起" : "展开全部(" + entries.length + ")";
+        }
       }
 
       // 后台外部情报更新:与 UI 解耦(§17/§73),DataHub 统一缓存(§18)
@@ -9596,6 +9755,11 @@ export const page = String.raw`<!doctype html>
           setMarketSeg("watch");
           perfMark(h, "ready");
         });
+        // V16.2v:市场扫描面板展开/收起
+        $("mkScanMore").addEventListener("click", () => {
+          viewState.scanExpanded = !viewState.scanExpanded;
+          renderMarketScan();
+        });
         // V16.2:市场滚动位置改由 navState 在"离开页面"时精确采样(setActivePage 内保存),
         // 不再用"边滚边记 + mkList.scrollTop 恢复"的旧写法(恢复写错了元素,滚动的是 window)。
         $("mkScanBtn").addEventListener("click", () => {
@@ -9754,6 +9918,10 @@ export const page = String.raw`<!doctype html>
         setActivePage("home");   // 初始就位:移动页激活时收起旧版容器,保证首屏不是空白
         await renderHome();
         await renderMarket(false).catch(() => {});
+        // V16.2v §15:动态币种池 —— 首轮立即扫描,之后每 10 分钟刷新(与后台运行时同节奏)
+        if (universeTimer) clearInterval(universeTimer);
+        universeTimer = setInterval(() => { void refreshUniverseScan(false); }, 600000);
+        void refreshUniverseScan(true);
         applyNotificationRoute();   // V16.1-RV §50:冷启动若是"点通知进来的",按 kind 深链
         if (homeTimer) clearInterval(homeTimer);
         homeTimer = setInterval(() => { if (!$("page-home").classList.contains("active") && !$("page-paper").classList.contains("active")) return; void renderHome(); if ($("page-paper").classList.contains("active")) void renderPaperPage(); }, 8000);

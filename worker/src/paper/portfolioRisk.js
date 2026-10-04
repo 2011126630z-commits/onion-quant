@@ -19,7 +19,11 @@ export const RISK_THRESHOLDS = {
   caution_margin_usage_pct: 60,
   defensive_margin_usage_pct: 75,
   hard_stop_margin_usage_pct: 90,
-  symbol_exposure_cap_pct: 35,
+  // V16.2v:单币名义暴露分两级 —— 35% 提示(记录集中度,供诊断/UI),100% 拦截(单币爆仓敞口兜底)。
+  // 旧实现把 35% 当拦截阈值,与"单仓保证金 40% × 2 倍杠杆 = 80% 名义"的政策自相矛盾;
+  // 同向相关性合并的主守仍是 capitalAllocator 的相关度加权阵营上限(保证金口径)。
+  symbol_exposure_warn_pct: 35,
+  symbol_exposure_cap_pct: 100,
   max_leverage: { NORMAL: 5, CAUTION: 3, DEFENSIVE: 2, HARD_STOP: 1 },
   risk_budget_pct: { NORMAL: 15, CAUTION: 10, DEFENSIVE: 6, HARD_STOP: 0 },
   recovery_step_pct: 4
@@ -90,10 +94,12 @@ export function portfolioRisk(input) {
     || (i.drawdown && i.drawdown.actions && i.drawdown.actions.allow_new_positions === false));
   const allowAddPosition = allowNewEntry && RISK_RANK[level] < RISK_RANK.DEFENSIVE;
 
-  // 单币暴露检查:超限只影响该 symbol 的新开仓(通过 notes 暴露给调用方)
+  // 单币暴露两级:35% 提示(记录集中度,供诊断/UI) / 100% 拦截(单币爆仓敞口兜底,影响该 symbol 新开仓)
   const exposureViolations = [];
+  const exposureWarnings = [];
   for (const [sym, notional] of Object.entries(symbolExposure)) {
     const pct = equity > 0 ? round(notional / equity * 100, 4) : 0;
+    if (pct > T.symbol_exposure_warn_pct) exposureWarnings.push({ symbol: sym, exposure_pct: pct });
     if (pct > T.symbol_exposure_cap_pct) exposureViolations.push({ symbol: sym, exposure_pct: pct });
   }
 
@@ -115,6 +121,7 @@ export function portfolioRisk(input) {
     symbol_exposure: symbolExposure,
     leverage_exposure: leverageExposure,
     exposure_violations: exposureViolations,
+    exposure_warnings: exposureWarnings,
     veto_reasons: [
       ...reasons,
       ...(integrityBad ? ["data_integrity"] : []),

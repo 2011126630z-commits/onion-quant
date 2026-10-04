@@ -172,11 +172,17 @@ console.log("== 4. Provider STALE:HTTP 200 但价格停滞(§35) ==");
   check("STALE 时暂停新开仓(订单不增长)", h.engine.getOrders().length === ordersBefore, JSON.stringify({ before: ordersBefore, after: h.engine.getOrders().length }));
   check("STALE 跳过开仓但策略轮次仍计数并留痕", s.summary && s.summary.note === "market_stale_skip_entries" && h.runtime.loops() === 4, JSON.stringify(s.summary));
   check("STALE 通知只发一次", h.notifications.filter((n) => /行情数据可能停滞/.test(n.title)).length === 1);
+  const qLogBefore5 = h.engine.entryQualityLog().length;
   h.setDrift(37);
   clock.t += 3600000;
   const back = await h.runtime.tick("s5");
   check("价格恢复变化 → 回到 HEALTHY", h.runtime.status().market_state === "HEALTHY", JSON.stringify(h.runtime.status().market_state));
-  check("恢复后可以正常开仓", h.engine.getOrders().length > ordersBefore, JSON.stringify({ after: h.engine.getOrders().length }));
+  // §67 更新说明:旧断言"恢复后必定能开新仓"隐含假设"旧小仓位恰好没触到同向上限"。
+  // V16.2v 意义化仓位 + 同向真实保证金 ≤50% 生效后,本场景同向暴露已在上限附近,
+  // 恢复后再开同向新仓会被 Entry Gate 正确以 EXPOSURE_CAP 拒绝 —— 这是策略在工作,不是流水停摆。
+  // 新断言验证真实目标:恢复后【决策流水恢复】(质量决策增长),且【要么成交、要么给出结构化拒绝】,不许静默。
+  check("恢复后决策流水恢复(有新的质量决策,不是静默停放)", h.engine.entryQualityLog().length > qLogBefore5, JSON.stringify({ before: qLogBefore5, after: h.engine.entryQualityLog().length }));
+  check("恢复后可以正常开仓 或 被同向暴露上限结构化拒绝(EXPOSURE_CAP)", h.engine.getOrders().length > ordersBefore || /EXPOSURE_CAP|CLUSTER|PORTFOLIO/.test(JSON.stringify(h.engine.entryQualityLog().slice(-3))), JSON.stringify({ after: h.engine.getOrders().length, tail: h.engine.entryQualityLog().slice(-2) }));
   check("恢复 tick 不再是 stale 跳过", !(back.summary && back.summary.note === "market_stale_skip_entries"));
   h.runtime.dispose();
 }

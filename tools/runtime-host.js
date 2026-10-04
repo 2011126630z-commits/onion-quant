@@ -29,21 +29,29 @@
   let currentProvider = null;
   function normalizeTickers(provider, raw) {
     const out = [];
+    // V16.2v:动态币种池需要 24h 成交额/涨跌幅 —— 三个 Provider 各自映射为统一字段(缺失记 0,不合成)
+    const nf = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
     if (provider === "binance") {
       for (const t of raw || []) {
         if (!t || !t.symbol) continue;
-        out.push({ symbol: String(t.symbol), lastPrice: Number(t.lastPrice), highPrice: Number(t.highPrice), lowPrice: Number(t.lowPrice) });
+        out.push({ symbol: String(t.symbol), lastPrice: Number(t.lastPrice), highPrice: Number(t.highPrice), lowPrice: Number(t.lowPrice),
+          quoteVolume: nf(t.quoteVolume), priceChangePercent: nf(t.priceChangePercent) });
       }
     } else if (provider === "okx") {
       for (const t of (raw && raw.data) || []) {
         if (!t || !t.instId || !String(t.instId).endsWith("-USDT-SWAP")) continue;
         const symbol = String(t.instId).replace("-USDT-SWAP", "") + "USDT";
-        out.push({ symbol, lastPrice: Number(t.last), highPrice: Number(t.high24h), lowPrice: Number(t.low24h) });
+        const open = Number(t.open24h);
+        const last = Number(t.last);
+        out.push({ symbol, lastPrice: last, highPrice: Number(t.high24h), lowPrice: Number(t.low24h),
+          quoteVolume: nf(t.volCcy24h != null ? t.volCcy24h : t.vol24h),
+          priceChangePercent: open > 0 && Number.isFinite(last) ? (last - open) / open * 100 : 0 });
       }
     } else if (provider === "bybit") {
       for (const t of (raw && raw.result && raw.result.list) || []) {
         if (!t || !t.symbol || !String(t.symbol).endsWith("USDT")) continue;
-        out.push({ symbol: String(t.symbol), lastPrice: Number(t.lastPrice), highPrice: Number(t.highPrice24h), lowPrice: Number(t.lowPrice24h) });
+        out.push({ symbol: String(t.symbol), lastPrice: Number(t.lastPrice), highPrice: Number(t.highPrice24h), lowPrice: Number(t.lowPrice24h),
+          quoteVolume: nf(t.turnover24h), priceChangePercent: nf(t.price24hPcnt) * 100 });
       }
     }
     return out.filter((t) => Number.isFinite(t.lastPrice) && t.lastPrice > 0);
@@ -101,6 +109,51 @@
   }
 
   async function boot() {
+    // ---- V16.2v 动态币种池(替代写死的 5 币):Level1 轻扫(成交额前 40)→ 池子门槛 → 短名单(≤10) ----
+    // 每 10 分钟刷新一次;K线预热根数按币记忆(单次抓取失败沿用上次,避免一次抖动把老币打回 WARMING_UP)。
+    const UNIVERSE_REFRESH_MS = 600000;
+    const universeState = { at: 0, shortlist: [], counts: null, scanned: 0, error: null, candlesSeen: {} };
+    async function refreshUniverse(force) {
+      const nowMs = Date.now();
+      if (!force && universeState.at && nowMs - universeState.at < UNIVERSE_REFRESH_MS) return universeState;
+      // 旧 bundle 无动态宇宙能力时干净降级(不抛错、不刷屏,候选名单仍走核心币兜底)
+      if (typeof QE.buildScan !== "function" || !QE.SCAN_LIMITS) {
+        universeState.error = "buildScan_unavailable(旧 bundle)";
+        return universeState;
+      }
+      try {
+        const { tickers } = fetchTickersWithFailover();
+        const scanMax = (QE.SCAN_LIMITS && QE.SCAN_LIMITS.scan_max_symbols) || 40;
+        const top = (tickers || [])
+          .filter((t) => t && /^[A-Z0-9]{4,24}USDT$/.test(String(t.symbol || "")))
+          .sort((a, b) => Number(b.quoteVolume || 0) - Number(a.quoteVolume || 0))
+          .slice(0, scanMax);
+        const klinesBySymbol = {};
+        for (const t of top) {
+          const symbol = String(t.symbol || "");
+          if (!symbol) continue;
+          try {
+            const rows = await klines(symbol, "4h");
+            if (rows && rows.length) { universeState.candlesSeen[symbol] = rows.length; klinesBySymbol[symbol] = rows; }
+          } catch (error) { /* 单币失败不影响整轮 */ }
+          if (!klinesBySymbol[symbol] && universeState.candlesSeen[symbol]) klinesBySymbol[symbol] = { candles_seen: universeState.candlesSeen[symbol] };
+        }
+        const holdings = (engine && engine.getPositions ? engine.getPositions() : [])
+          .filter((p) => p && (p.status === "OPEN" || p.status === "CLOSING")).map((p) => p.symbol);
+        const scan = QE.buildScan({ tickers: top, klinesBySymbol, holding: holdings, now: nowMs });
+        universeState.at = nowMs;
+        universeState.error = null;
+        universeState.shortlist = scan.shortlist.map((s) => s.symbol);
+        universeState.counts = scan.counts;
+        universeState.scanned = scan.scanned;
+        log("universe 扫描 " + scan.scanned + " 币 · 可交易 " + scan.counts.active + " · 深度名单 [" + scan.shortlist.map((s) => s.symbol).join(",") + "]");
+        return universeState;
+      } catch (error) {
+        universeState.error = String((error && error.message) || error);
+        log("universe 扫描失败(沿用上次名单): " + universeState.error);
+        return universeState;
+      }
+    }
     if (!QE || typeof QE.createPaperRuntime !== "function") {
       log("bundle 未就绪,等待重试");
       setTimeout(boot, 1500);
@@ -144,7 +197,21 @@
       // 这就是"后台看起来在跑、实际从没推进过"的真根因。这里改成 async 包装 + 直接取 .tickers。
       fetchTickers: async () => fetchTickersWithFailover().tickers,
       quote_provider: currentProvider,
-      candidateSymbols: () => ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"],
+      // V16.2v:候选来自动态币种池(每 10 分钟重扫),不再是写死的 5 币;
+      // 冷启动(首轮扫描还没完成)退回核心币兜底,绝不空转;持仓币永远在候选里。
+      candidateSymbols: () => {
+        const seen = new Set();
+        const out = [];
+        const push = (s) => { const k = String(s || "").toUpperCase(); if (k && !seen.has(k)) { seen.add(k); out.push(k); } };
+        for (const s of (universeState.shortlist || [])) push(s);
+        try {
+          for (const p of (engine && engine.getPositions ? engine.getPositions() : [])) {
+            if (p && (p.status === "OPEN" || p.status === "CLOSING")) push(p.symbol);
+          }
+        } catch (error) { /* 读取持仓失败不阻断候选 */ }
+        for (const s of ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"]) push(s);
+        return out.slice(0, 12);
+      },
       modes: ["short", "long"],
       short_interval: "1h",
       long_interval: "4h",
@@ -189,12 +256,23 @@
       },
       config: { tick_interval_ms: 300000, risk_interval_ms: 20000 },
       onStatus: (status) => {
-        try { if (bridge && bridge.status) bridge.status(JSON.stringify(status)); } catch (error) { /* ignore */ }
+        try {
+          if (bridge && bridge.status) {
+            // V16.2v:状态里带上"到底扫了什么"(真机诊断可见:连续只扫 4 个币也能被发现)
+            const uni = universeState.counts
+              ? { ...universeState.counts, at: universeState.at, shortlist: universeState.shortlist.slice(0, 10), error: universeState.error }
+              : { scanned: 0, at: universeState.at, error: universeState.error, note: "首轮扫描未完成" };
+            bridge.status(JSON.stringify({ ...status, universe: uni }));
+          }
+        } catch (error) { /* ignore */ }
       }
     });
 
     const started = await runtime.start({ started_by: SOURCE });
     log("runtime start: " + JSON.stringify(started && started.status ? { state: started.status.state, equity: started.status.equity, instance_id: started.status.instance_id } : started));
+    // V16.2v:立即做首轮动态宇宙扫描,并每 10 分钟刷新(候选名单驱动后续所有 tick)
+    void refreshUniverse(true);
+    setInterval(() => { void refreshUniverse(false); }, UNIVERSE_REFRESH_MS);
     // 自我守护:页面(服务)被回收后重建,发现状态不是 RUNNING 就重新拉起
     let lastStallSeenAt = 0;
     setInterval(() => {

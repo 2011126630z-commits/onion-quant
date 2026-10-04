@@ -20,6 +20,7 @@ import { createNotificationCenter, notificationDigest } from "./notifications.js
 import { createDecisionJournal, journalContextForChat } from "./decisionJournal.js";
 import { recoveryPlan, recoveryView } from "./recovery.js";
 import { attributionOf, attributionView, exitBucketOf, isValidTrade } from "./attribution.js";
+import { capitalEfficiencyOf, positionEventTrades, capitalEfficiencyView } from "./capitalEfficiency.js";
 // V16 资金与决策内核:精确金额 / 开仓质量闸门 / 组合资金分配 / 利润分配 / 高水位保护 / 论点跟踪
 import { ledgerExactAudit, toUnits, fromUnits, MONEY_DRIFT_TOLERANCE_UNITS } from "./money.js";
 import { entryQuality, minimumMeaningfulPosition, skipShadowRecord, resolveSkipShadow, ENTRY_DECISION_ZH, NO_TRADE_ZH, ENTRY_QUALITY_RULES } from "./entryQuality.js";
@@ -761,6 +762,14 @@ export function createPaperEngine(deps) {
       if (quote.received_at && now() - num(quote.received_at) > STALE_QUOTE_MS) {
         return { ok: false, reason: "stale_quote" };
       }
+      // V16.2v §27:决策时落记(行情可用性检查之后、风控/质量闸门之前)—— 同一收盘K线每个(symbol|mode)
+      // 只允许一次【决策】。旧实现只在成交成功后落记 → 被否决的候选会被后续每个 tick 重复决策
+      // (空耗 + 额度波动时产生迟到成交),也让"同一收盘K线不产生新仓位"在额度变化时失败。
+      // 脏报价(无效/过期)不算决策,不吃掉该 K 线的重试机会。
+      if (candleNow != null) {
+        engine.lastProcessedCandles = { ...(engine.lastProcessedCandles || {}), [candleKey]: candleNow };
+        engine.state.last_processed_candles = engine.lastProcessedCandles;
+      }
       const riskVeto = (d.riskCheck && d.riskCheck({ mode, symbol: input.symbol, account: engine.account, positions: engine.positions, quote, analysis: input.analysis, trades: engine.trades, wallets: engine.wallets })) || { veto: false };
       // V14.4:外部情报只能"收紧"(抬高风险分),永不放行 —— gate.can_grant_open 恒为 false
       const extGate = currentExternalGate({ symbol: input.symbol, mode });
@@ -785,8 +794,15 @@ export function createPaperEngine(deps) {
         return { ok: false, reason: "risk_veto", veto: riskVeto, order: rejected };
       }
       const wallet = engine.wallets[mode];
-      const size = positionSize({ wallet, poolEquity: num(wallet.allocated_balance), config: cfg, riskPct: input.riskPct });
-      if (!isSafeAmount(size.notional) || num(size.notional) < 0.5) return { ok: false, reason: "size_too_small", size, min_notional: 0.5 };
+      // V16.2v §5/§7 资金与损失严格分离(修"蚂蚁仓"根因):
+      //   旧实现把"风险预算(riskPct% × 池子)"直接当保证金使用 —— 默认 15% 预算 →
+      //   短线池 70×15%=10.5U / 长线池 30×15%=4.5U 的"早缩";质量阶梯(可到 40%)根本轮不到生效,
+      //   高质量信号也只能开蚂蚁仓,整笔最终净利被费用吃掉。
+      //   现在:risk_budget = 允许亏损额(不是占用);risk_margin = risk_budget /(止损距离% × 杠杆)
+      //   才是"允许占用的保证金";并与 40% 池子上限取小。质量阶梯/组合/阵营上限照旧在
+      //   Capital Allocator 收敛 —— 单一职责:损失预算归风险,资金占用归分配器。
+      const poolEquity = num(wallet.allocated_balance);
+      const riskBudget = round(Math.max(0, poolEquity * num(input.riskPct, cfg.risk_per_trade_pct) / 100), 8);
       const side = input.direction === "Bullish" || input.direction === "Strong Bullish" ? "BUY" : "SELL";
       const direction = side === "BUY" ? "LONG" : "SHORT";
       const estFill = fillPrice(price, side, cfg);
@@ -803,7 +819,14 @@ export function createPaperEngine(deps) {
           regime: input.analysis && input.analysis.market_regime ? input.analysis.market_regime.label : null,
           hard_cap: input.leverage_cap || LEVERAGE_POLICY.max_leverage_hard_cap
         });
-      const margin = round(size.notional, 8);
+      const stopMult = num((MODE_CONFIG[mode] || MODE_CONFIG.short).stopAtrMult, 1.5);
+      const stopFrac = atr > 0 && price > 0 ? Math.min(0.5, Math.max(0.002, atr * stopMult / price)) : 0.02;
+      const levForCap = Math.max(1, num(leverageRequest.requested_leverage, 1));
+      const riskMarginCap = round(riskBudget / (stopFrac * levForCap), 8);
+      const margin = round(Math.min(riskMarginCap, poolEquity * CAPITAL_LIMITS.max_single_position_pct / 100), 8);
+      if (!isSafeAmount(margin) || margin < 0.5) {
+        return { ok: false, reason: "size_too_small", margin: margin, min_notional: 0.5, risk_budget: riskBudget, stop_frac: stopFrac };
+      }
       const provisionalLiq = liquidationPriceOf({ side: direction, entryPrice: estFill, leverage: leverageRequest.requested_leverage, margin });
       // §8 方向不变量:多头强平价必须在开仓价下方、空头在上方。不满足 → 拒绝创建(LIQUIDATION_CALC_ERROR)
       const liqInvariant = liquidationInvariant({ side: direction, entryPrice: estFill, liquidationPrice: provisionalLiq });
@@ -856,7 +879,7 @@ export function createPaperEngine(deps) {
       // 现在:余量归零 → Entry Gate 直接 NO_TRADE(EXPOSURE_CAP,正式决策+影子),不允许 40%×N 绕过。
       const preExpo = effectiveExposure(engine.positions, {});
       const preClusterKey = clusterOfSymbol(input.symbol) + "|" + direction;
-      const clusterNowMargin = num(preExpo.by_cluster[preClusterKey], 0);
+      const clusterNowMargin = num((preExpo.by_cluster_gross || preExpo.by_cluster)[preClusterKey], 0);
       const clusterCapMargin = equityNow * CAPITAL_LIMITS.cluster_same_direction_pct / 100;
       const portfolioRoomMargin = equityNow * CAPITAL_LIMITS.max_portfolio_margin_pct / 100 - num(preExpo.adjusted_exposure, 0);
       const minAllocMargin = equityNow * CAPITAL_LIMITS.min_alloc_pct / 100;
@@ -939,9 +962,12 @@ export function createPaperEngine(deps) {
         requested_notional: finalNotional
       });
       if (!meaningful.feasible) {
-        journalBlocked({ symbol: input.symbol, mode, analysis: input.analysis, direction: input.direction }, "仓位无意义:" + meaningful.reason);
-        log("quality", input.symbol + " 仓位无意义(" + meaningful.reason + ") 名义=" + finalNotional);
-        return { ok: false, reason: "below_min_meaningful", meaningful, alloc };
+        const feeDragVariant = meaningful.reason === "FEE_DRAG_TOO_HIGH";
+        journalBlocked({ symbol: input.symbol, mode, analysis: input.analysis, direction: input.direction },
+          feeDragVariant ? ("费用吃掉边际:" + (meaningful.cost_ratio_of_edge == null ? "--" : Math.round(meaningful.cost_ratio_of_edge * 100) + "%") + " 成本占比 · 净收益无实际价值")
+            : ("仓位无意义:" + meaningful.reason));
+        log("quality", input.symbol + " 仓位无意义(" + meaningful.reason + ") 名义=" + finalNotional + (meaningful.cost_ratio_of_edge != null ? " 成本占比=" + meaningful.cost_ratio_of_edge : ""));
+        return { ok: false, reason: feeDragVariant ? "SKIP_FEE_DRAG" : "below_min_meaningful", meaningful, alloc };
       }
       if (!isSafeAmount(finalNotional) || finalNotional < 0.5) return { ok: false, reason: "size_too_small", detail: { notional: finalNotional } };
 
@@ -1083,11 +1109,7 @@ export function createPaperEngine(deps) {
       });
       engine.orders.push(applied.order);
       engine.positions.push(applied.position);
-      // V15.1 §19:记录已处理收盘K线(symbol|mode|interval),随引擎状态一起落库
-      if (candleNow != null) {
-        engine.lastProcessedCandles = { ...(engine.lastProcessedCandles || {}), [candleKey]: candleNow };
-        engine.state.last_processed_candles = engine.lastProcessedCandles;
-      }
+      // (V16.2v §27:收盘K线的"已处理"标记已前移到【决策时】落记,这里不再重复) —— 见本函数顶部的开仓前守卫。
       snapshot();   // §15:先同步账户口径(reserved/equity),再落库 —— 否则库里留的是旧值
       commitReserve(reserveBook, intentId, { now: now(), actual_amount: round(finalMargin + finalFee, 8) });
       await persist({ account: true, wallet: true, position: [applied.position], order: [applied.order], state: true, queue: [syncItem("paper_order", applied.order.order_id, applied.order), syncItem("paper_position", applied.position.position_id, applied.position)] });
@@ -1245,6 +1267,14 @@ export function createPaperEngine(deps) {
       const idx = engine.positions.findIndex((p) => p.position_id === live.position_id);
       if (idx >= 0) engine.positions[idx] = closed.position;
       engine.trades.push(closed.trade);
+      // V16.2v §11/§12:母仓级资金效率 —— 以整个 Position 的累计事件结算(部分减仓的 0.00xU 不单独评判机会价值)
+      try {
+        let evts = positionEventTrades(engine.trades, live.position_id);
+        if (!evts.length) evts = [closed.trade];
+        const eff = capitalEfficiencyOf(live, evts);
+        closed.trade.capital_efficiency = eff;
+        if (eff.low_capital_efficiency || eff.dust_profit) log("efficiency", live.symbol + " " + eff.note_zh);
+      } catch (error) { /* 效率指标绝不阻断平仓 */ }
       const sample = makeLearningSample(closed.trade, live, input);
       closed.trade.learning_sample_id = sample.sample_id;
       await d.store.put("learning_samples", sample);
@@ -2684,6 +2714,13 @@ export function createPaperEngine(deps) {
     journalContextForChat: (question, opts) => journalContextForChat(decisionJournal, question, opts || {}),
     // V16.2u §18:决策日志条目(带 signal/intent/decision 溯源字段),供"为什么开/平这单"查询与测试
     journalEntries: (o) => (decisionJournal && typeof decisionJournal.list === "function") ? decisionJournal.list(o || {}) : [],
+    // V16.2v §12:资金效率(母仓口径) —— 单仓查询与全量聚合
+    capitalEfficiency: (positionId) => {
+      const p = engine.positions.find((x) => x.position_id === positionId) || {};
+      const evts = positionEventTrades(engine.trades, positionId);
+      return evts.length ? capitalEfficiencyOf(p, evts) : capitalEfficiencyOf({ position_id: positionId }, []);
+    },
+    capitalEfficiencySummary: () => capitalEfficiencyView(engine.trades.filter((t) => t && t.capital_efficiency).map((t) => t.capital_efficiency)),
     positionAudit: (opts) => positionManager.audit(opts || {}),
     positionOverview: () => positionManagerView(engine.positions),
     recoveryReport: () => engine.recoveryReport,

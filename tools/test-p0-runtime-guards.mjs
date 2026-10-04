@@ -92,17 +92,19 @@ console.log("== B. 组合暴露守卫(跨池同币同向 / 同向阵营上限) =
   check("ClusterExposureGuardTest:大额开仓成功(正向对照)", o1.ok === true && o1.position.initial_margin > 20 && o1.position.initial_margin <= 28.01, JSON.stringify({ ok: o1.ok, m: o1.position && o1.position.initial_margin }));
   clock += 3600000;
   const o2 = await openEng(eng, { mode: "short", symbol: "SOLUSDT", direction: "Bullish", candle: clock, price: 100, riskPct: 100 });
-  check("ClusterExposureGuardTest:第二仓成功但阵营已被相关性加权顶到上限", o2.ok === true, JSON.stringify(o2.reason));
+  check("ClusterExposureGuardTest:第二仓成功(此时同向真实暴露已近阵营半仓上限)", o2.ok === true, JSON.stringify(o2.reason));
   const expo = eng.exposure();
-  const clusterNow = Number(expo.by_cluster["CRYPTO_BETA|LONG"] || 0);
+  const clusterGross = Number((expo.by_cluster_gross || {})["CRYPTO_BETA|LONG"] || 0);
   const acct = eng.getAccount();
-  const clusterCap = Number(acct.total_equity) * CAPITAL_LIMITS.cluster_same_direction_pct / 100;
-  check("ClusterExposureGuardTest:同向阵营暴露 ≥ 上限(相关度加权 2×,BTC+SOL 即触顶)", clusterNow >= clusterCap - 1e-6, "cluster=" + clusterNow.toFixed(4) + " cap=" + clusterCap.toFixed(4));
-  // 第三仓(换池:长线池 ETH,模拟"短线池与长线池同时对同向下注"场景)→ 必须被 Entry Gate 拒绝
+  const eq100 = Number(acct.total_equity);
+  check("ClusterExposureGuardTest:同向阵营真实保证金接近 50% 上限(BTC+SOL≈49)", clusterGross >= 45 && clusterGross <= 50.01, "gross=" + clusterGross.toFixed(4));
+  // 第三仓(换池:长线池 ETH,模拟"短线池与长线池同时对同向下注")→ 余量不足必须被拒/被缩到无意义
   clock += 3600000;
   const third = await openEng(eng, { mode: "long", symbol: "ETHUSDT", direction: "Bullish", candle: clock, price: 100, riskPct: 100 });
-  check("ClusterExposureGuardTest:阵营满额后跨池第三仓被拒(EXPOSURE_CAP)", third.ok === false && String(third.reason).indexOf("EXPOSURE_CAP") >= 0, JSON.stringify({ r: third.reason, q: third.quality && third.quality.blockers }));
-  check("ClusterExposureGuardTest:被拒是正式决策(有中文理由+影子记录)", Boolean(third.quality && (third.quality.block_reasons_zh || []).length > 0) && Number(eng.qualitySkips()) >= 1, JSON.stringify(third.quality && third.quality.block_reasons_zh));
+  const grossAfterThird = Number(((eng.exposure().by_cluster_gross || {})["CRYPTO_BETA|LONG"]) || 0);
+  check("ClusterExposureGuardTest:阵营余量不足时第三仓被拦(不许再按 40% 加码)", third.ok === false && /below_min|SKIP_FEE|EXPOSURE_CAP|CLUSTER/.test(String(third.reason)), JSON.stringify(third.reason));
+  check("ClusterExposureGuardTest:被拒是结构化决策(有明确理由载荷)", Boolean(third.meaningful && third.meaningful.feasible === false) || String(third.reason).indexOf("EXPOSURE_CAP") >= 0, JSON.stringify(third.meaningful || third.quality));
+  check("ClusterExposureGuardTest:被拒后阵营暴露未被挤大", grossAfterThird <= clusterGross + 1e-6, "gross=" + grossAfterThird.toFixed(4));
   // 反向对照:全新引擎只开一仓,同向第二仓必须放行(守卫响应真实暴露,不是一刀切封死)
   const eng2 = makeEngine();
   await eng2.init();
@@ -121,12 +123,13 @@ console.log("== B. 组合暴露守卫(跨池同币同向 / 同向阵营上限) =
   const cluster3 = Number(expo3.by_cluster["CRYPTO_BETA|LONG"] || 0);
   const mSum = Number(d1.position.initial_margin) + Number(d2.position.initial_margin);
   check("CrossPoolSameSymbolTest:两笔保证金都计入同一阵营暴露(不再孤立)", cluster3 >= mSum - 1e-6, "cluster=" + cluster3.toFixed(4) + " sum=" + mSum.toFixed(4));
-  // 纯函数口径对照:配额归零必须报"真因"(阵营/组合),不得误报 LIQUIDITY_EMPTY
-  const pureCluster = capitalAllocation({ equity: 100, requested_pct: 40, quality_score: 90, positions: [{ symbol: "BTCUSDT", direction: "LONG", status: "OPEN", remaining_margin: 20 }, { symbol: "ETHUSDT", direction: "LONG", status: "OPEN", remaining_margin: 20 }], available_cash: 1e12, symbol: "SOLUSDT", direction: "LONG" });
-  check("ClusterExposureGuardTest:capitalAllocation 阵营顶满 → CLUSTER_CAP(不误报资金不足)", pureCluster.allowed === false && pureCluster.code === "CLUSTER_CAP", JSON.stringify({ a: pureCluster.allowed, c: pureCluster.code, caps: pureCluster.caps_applied }));
-  const purePortfolio = capitalAllocation({ equity: 100, requested_pct: 40, quality_score: 90, positions: [{ symbol: "BTCUSDT", direction: "LONG", status: "OPEN", remaining_margin: 40 }, { symbol: "ETHUSDT", direction: "LONG", status: "OPEN", remaining_margin: 40 }], available_cash: 1e12, symbol: "SOLUSDT", direction: "LONG" });
-  check("ClusterExposureGuardTest:组合保证金顶满 → PORTFOLIO_CAP(相关度加权后先绑定)", purePortfolio.allowed === false && purePortfolio.code === "PORTFOLIO_CAP", JSON.stringify({ a: purePortfolio.allowed, c: purePortfolio.code }));
-  check("CrossPoolSameSymbolTest:聚类口径集中在 CRYPTO_BETA(同阵营=同一份风险)", clusterOfSymbol("BTCUSDT") === "CRYPTO_BETA" && clusterOfSymbol("ETHUSDT") === "CRYPTO_BETA" && CAPITAL_LIMITS.cluster_same_direction_pct === 80);
+  // 纯函数口径对照:同向阵营(gross 50%)与组合加权上限(100%)都必须在场
+  const pureShrink = capitalAllocation({ equity: 100, requested_pct: 40, quality_score: 90, positions: [{ symbol: "BTCUSDT", direction: "LONG", status: "OPEN", remaining_margin: 25 }, { symbol: "ETHUSDT", direction: "LONG", status: "OPEN", remaining_margin: 20 }], available_cash: 1e12, symbol: "SOLUSDT", direction: "LONG" });
+  check("ClusterExposureGuardTest:阵营余量不足 → 缩仓且标注 CLUSTER_CAP(≤余量)", pureShrink.allowed === true && pureShrink.approved_usdt <= 5.01 && (pureShrink.caps_applied || []).includes("CLUSTER_CAP"), JSON.stringify({ u: pureShrink.approved_usdt, caps: pureShrink.caps_applied }));
+  const pureFull = capitalAllocation({ equity: 100, requested_pct: 40, quality_score: 90, positions: [{ symbol: "BTCUSDT", direction: "LONG", status: "OPEN", remaining_margin: 30 }, { symbol: "ETHUSDT", direction: "LONG", status: "OPEN", remaining_margin: 30 }], available_cash: 1e12, symbol: "SOLUSDT", direction: "LONG" });
+  check("ClusterExposureGuardTest:同向相关已满 → 直接拒绝(不许 40%×3)", pureFull.allowed === false && ["CLUSTER_CAP", "PORTFOLIO_CAP"].includes(pureFull.code), JSON.stringify({ a: pureFull.allowed, c: pureFull.code, caps: pureFull.caps_applied }));
+  check("CrossPoolSameSymbolTest:阵营上限为真实保证金 50%(加权组合仍 100%)", CAPITAL_LIMITS.cluster_same_direction_pct === 50 && CAPITAL_LIMITS.max_portfolio_margin_pct === 100);
+  check("CrossPoolSameSymbolTest:聚类口径集中在 CRYPTO_BETA(同阵营=同一份风险)", clusterOfSymbol("BTCUSDT") === "CRYPTO_BETA" && clusterOfSymbol("ETHUSDT") === "CRYPTO_BETA" && CAPITAL_LIMITS.cluster_same_direction_pct === 50, String(CAPITAL_LIMITS.cluster_same_direction_pct));
 }
 
 console.log("== C. Runtime 统一呈现态(7 态) ==");
