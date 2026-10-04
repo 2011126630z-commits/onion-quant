@@ -785,9 +785,9 @@ export const page = String.raw`<!doctype html>
       .sg-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 0; min-height: 52px; }
       .sg-row .sg-left { min-width: 0; }
       .sg-row .sg-left .coin-name { font-size: 14.5px; }
-      .sg-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-      .sg-val { font-size: 13px; color: var(--muted); white-space: nowrap; }
-      .sg-chev { color: var(--gray); font-size: 17px; line-height: 1; }
+      .sg-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-width: 0; max-width: 58%; }
+      .sg-val { font-size: 13px; color: var(--muted); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .sg-chev { color: var(--gray); font-size: 17px; display: inline-block; width: 22px; min-width: 22px; height: 22px; line-height: 22px; text-align: center; }
       /* 灰徽标在设置组内退成纯文字,去掉大灰 pill 观感(红/绿等有含义的保留底色) */
       .sg-rows .pill { min-width: 0; }
       .sg-rows .pill.gray { background: transparent; color: var(--muted); padding: 2px 0; }
@@ -864,6 +864,52 @@ export const page = String.raw`<!doctype html>
       .value { font-weight: 650; }
       /* 分区留白统一(替代散落魔法数) */
       .sec-title { margin-top: 20px; }
+      /* ================= V16.2s:Segmented / 星标 / Accordion / 按压反馈 / 溢出护栏 ================= */
+      /* 市场/自选 分段控件:圆角容器 + 轻量滑块(transform 动画,不动布局);全部取 Design Tokens,去掉原生控件观感 */
+      .seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0 12px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+      .seg-btn { position: relative; z-index: 2; min-height: 38px; border: 0; background: transparent; color: var(--text-secondary); font-size: 14px; font-weight: 600; border-radius: 9px; }
+      .seg-btn.active { color: var(--text-primary); }
+      .seg-thumb { position: absolute; z-index: 1; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 7px); background: var(--bg); border: 1px solid var(--border); border-radius: 9px; transition: transform 180ms cubic-bezier(.22, .61, .36, 1); }
+      .seg[data-seg="watch"] .seg-thumb { transform: translateX(calc(100% + 6px)); }
+      /* 星标(自选):市场列表 / 币种详情 / 搜索结果共用一个组件;未收藏=描边,已收藏=accent 实心;命中区 44px */
+      .star { width: 44px; height: 44px; min-width: 44px; display: inline-grid; place-items: center; border: 0; background: transparent; color: var(--text-secondary); font-size: 19px; line-height: 1; border-radius: 10px; }
+      .star.on { color: var(--accent); }
+      /* 市场行:Symbol | Price(右对齐) | 24h Change(定宽) | Star(定宽)——窄屏互不顶走 */
+      .mk-row .mk-main { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
+      .mk-row .mk-price { margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; }
+      .mk-row .mk-chg { width: 76px; min-width: 76px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .mk-row .star { margin: -8px -2px -8px 0; }
+      .mk-empty { padding: 26px 12px; text-align: center; color: var(--text-secondary); font-size: 12.5px; line-height: 1.7; }
+      /* Accordion:统一展开/收起(0fr→1fr 高度动画,不写死高度);箭头 160-180ms 旋转 */
+      .acc-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms ease; }
+      .acc-body > .acc-inner { overflow: hidden; min-height: 0; }
+      .acc.open > .acc-body { grid-template-rows: 1fr; }
+      .acc .sg-chev { transition: transform 170ms ease; }
+      .acc.open .sg-chev { transform: rotate(90deg); }
+      .acc-head { cursor: pointer; }
+      .acc.open > .acc-head { border-bottom: 1px solid var(--border); }
+      /* 点击按压反馈:pointerdown 立即生效(不等 click handler 跑完);只用 transform,不触发重排 */
+      button, .nav-btn, .sg-row, .mk-row, .chip, .theme-opt { transition: transform 70ms ease-out; }
+      .pressed { transform: scale(.98); }
+      .nav-btn.pressed { transform: scale(.94); }
+      /* 长字段/数值溢出护栏:flex 子项可收缩 + 长串换行,不许撑破 Card */
+      .card, .sg-rows, .sg-row, .sg-left, .hm-row, .mk-row, .pf-pos { min-width: 0; }
+      .coin-name, .coin-sub, .v-note, .hm-row .k, .hm-row .v, .sym, .value, .sg-val, .pill, .kd-err-zh, .kd-err-count { min-width: 0; overflow-wrap: anywhere; }
+      .v-table td { overflow-wrap: anywhere; }
+      code, .kd-err-id { overflow-wrap: anywhere; word-break: break-all; }
+      .pill { max-width: 100%; }
+      /* 系统状态:紧凑状态列表;点某一项展开细节,再点收起 */
+      .sys-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; padding: 11px 2px; border-bottom: 1px solid var(--border); min-height: 46px; }
+      .sys-row:last-child { border-bottom: none; }
+      .sys-row .sys-k { font-size: 13.5px; color: var(--text-primary); min-width: 0; overflow-wrap: anywhere; }
+      .sys-row .sys-right { display: flex; align-items: center; gap: 6px; margin-left: auto; max-width: 62%; min-width: 0; }
+      .sys-row .sys-v { font-size: 13px; color: var(--text-secondary); text-align: right; overflow-wrap: anywhere; min-width: 0; }
+      .sys-row .sys-detail { flex-basis: 100%; display: none; padding: 2px 2px 8px; font-size: 11.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
+      .sys-row.open .sys-detail { display: block; }
+      .sys-row.open .sg-chev { transform: rotate(90deg); }
+      .sys-rows-wrap { border-top: 1px solid var(--border); }
+      .suggest-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .suggest-row + .suggest-row { border-top: 1px solid var(--border); }
     </style>
   </head>
   <body>
@@ -1027,11 +1073,13 @@ export const page = String.raw`<!doctype html>
         </div>
         <div class="sec-title">学习与验证</div>
         <div class="sg-rows">
-          <div class="sg-row" id="openLearning">
-            <div class="sg-left"><div class="coin-name">学习状态</div><div class="coin-sub">模型版本与市场规律变化(技术信息)</div></div>
-            <div class="sg-right"><span class="pill gray" id="learningBadge">--</span><span class="sg-chev">›</span></div>
+          <div class="acc" id="learningAcc">
+            <div class="sg-row acc-head" id="openLearning" role="button" tabindex="0" aria-expanded="false">
+              <div class="sg-left"><div class="coin-name">学习状态</div><div class="coin-sub">模型版本与市场规律变化(技术信息)</div></div>
+              <div class="sg-right"><span class="pill gray" id="learningBadge">--</span><span class="sg-chev">›</span></div>
+            </div>
+            <div class="acc-body"><div class="acc-inner"><div class="v-note" id="learningDetail"></div></div></div>
           </div>
-          <div class="v-note hidden" id="learningDetail"></div>
           <div class="sg-row" id="openValidation">
             <div class="sg-left"><div class="coin-name">历史验证</div><div class="coin-sub">系统此前的判断到底准不准 · 真实结果统计</div></div>
             <div class="sg-right"><span class="pill gray" id="validationBadge">--</span><span class="sg-chev">›</span></div>
@@ -1074,11 +1122,13 @@ export const page = String.raw`<!doctype html>
             <div class="sg-left"><div class="coin-name">量化内核</div><div class="coin-sub">引擎 / 模型 / 数据 / 学习 / 服务 · 每个组件当前是否正常</div></div>
             <div class="sg-right"><span class="pill gray" id="kernelBadge">--</span><span class="sg-chev">›</span></div>
           </div>
-          <div class="sg-row" id="openSysStatus">
-            <div class="sg-left"><div class="coin-name">系统状态</div><div class="coin-sub">行情 / 引擎 / 数据库 / 研究 / 学习 / 后台服务</div></div>
-            <div class="sg-right"><span class="pill gray" id="sysBadge">--</span><span class="sg-chev">›</span></div>
+          <div class="acc" id="sysAcc">
+            <div class="sg-row acc-head" id="openSysStatus" role="button" tabindex="0" aria-expanded="false">
+              <div class="sg-left"><div class="coin-name">系统状态</div><div class="coin-sub">行情 / 引擎 / 数据库 / 研究 / 学习 / 后台服务 · 点开逐项可展开</div></div>
+              <div class="sg-right"><span class="pill gray" id="sysBadge">--</span><span class="sg-chev">›</span></div>
+            </div>
+            <div class="acc-body"><div class="acc-inner"><div id="sysStatusBox" class="sys-rows-wrap"></div></div></div>
           </div>
-          <div id="sysStatusBox"></div>
           <div class="sg-row" id="openDiag">
             <div class="sg-left"><div class="coin-name">系统诊断</div><div class="coin-sub">黑匣子 · 出问题时自动留下可导出的诊断记录</div></div>
             <div class="sg-right"><span class="pill gray" id="diagBadge">--</span><span class="sg-chev">›</span></div>
@@ -1522,7 +1572,6 @@ export const page = String.raw`<!doctype html>
         <div class="top-row">
           <h1>市场</h1>
           <div class="top-row-selects">
-            <button id="mkWatchBtn" class="v-close" type="button">自选</button>
             <button id="mkScanBtn" class="v-close" type="button">扫描市场</button>
           </div>
         </div>
@@ -1530,10 +1579,13 @@ export const page = String.raw`<!doctype html>
           <input id="mkSearch" type="text" placeholder="搜索币种,如 BTC" autocomplete="off" />
           <div id="mkSuggest" class="suggest"></div>
         </div>
-        <div class="sec-title">主要币种</div>
+        <div class="seg" id="mkSeg" data-seg="market" role="tablist" aria-label="市场与自选">
+          <span class="seg-thumb" aria-hidden="true"></span>
+          <button class="seg-btn active" id="mkSegMarket" data-seg="market" role="tab" aria-selected="true" type="button">市场</button>
+          <button class="seg-btn" id="mkSegWatch" data-seg="watch" role="tab" aria-selected="false" type="button">自选</button>
+        </div>
         <div id="mkList"></div>
-        <div class="sec-title">自选</div>
-        <div id="mkWatchList"></div>
+        <div id="mkWatchList" class="hidden"></div>
       </section>
 
       <section id="page-paper" class="page">
@@ -1587,7 +1639,10 @@ export const page = String.raw`<!doctype html>
             <h1 id="dtSymbol">--</h1>
             <div class="coin-sub"><span id="dtPrice">--</span> · <span id="dtChange" class="muted">--</span></div>
           </div>
-          <button id="dtBackBtn" class="v-close" type="button">返回</button>
+          <div class="top-row-selects">
+            <button id="dtStar" class="star" type="button" aria-label="自选" aria-pressed="false">☆</button>
+            <button id="dtBackBtn" class="v-close" type="button">返回</button>
+          </div>
         </div>
         <div class="chip-row" id="dtPeriods" style="margin-bottom:8px"></div>
         <div class="dt-live" id="dtLiveNote">实时行情:连接中…</div>
@@ -1763,6 +1818,96 @@ export const page = String.raw`<!doctype html>
       };
       const $ = (id) => document.getElementById(id);
       const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 });
+
+      // ================= V16.2s:统一自选 Store / 点击延迟观测 / 冻结看守 =================
+      // 自选单一事实来源:市场列表 / 详情星标 / 搜索结果 / 旧自选页 全部走同一套接口;
+      // state.watch 降级为"镜像视图"(由订阅同步),兼容仍在读 state.watch 的旧代码。
+      // 注意:此处必须用 window.QEngine 直取 —— 模块级 const QE 在其后声明,
+      // 在这里引用会踩 TDZ(导航压力测试专门守这条不变量,本次已实测抓到)。
+      const watchStore = window.QEngine.createWatchlistStore({
+        storage: (() => { try { return window.localStorage; } catch (error) { return null; } })(),
+        now: () => Date.now()
+      });
+      state.watch = watchStore.list();
+      watchStore.subscribe((evt) => {
+        state.watch = evt.items.slice();
+        try { syncWatchUI(evt); } catch (error) { diagLog("watch-ui", error); }
+      });
+      // 点击延迟观测(DEV 观察面,无业务副作用):window.__quantPerf 供浏览器/真机脚本读取
+      const devPerf = window.QEngine.createDevPerf({});
+      window.__quantPerf = devPerf;
+      try {
+        if (window.PerformanceObserver && Array.isArray(PerformanceObserver.supportedEntryTypes) && PerformanceObserver.supportedEntryTypes.indexOf("longtask") >= 0) {
+          new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) devPerf.longTask(entry.duration, "longtask");
+          }).observe({ entryTypes: ["longtask"] });
+        }
+      } catch (error) { /* 观测能力缺失不影响主流程 */ }
+      function perfFreezeSnapshot() {
+        try {
+          const sheets = ["chatSheet", "closeSheet", "ntfSheet", "themeSheet"].filter((id) => { const el = $(id); return Boolean(el && el.classList.contains("open")); });
+          const rt = (() => { try { const s = readRuntimeStatus(); return s ? s.state : null; } catch (error) { return null; } })();
+          return {
+            page: currentPage,
+            active_pages: document.querySelectorAll(".page.active").length,
+            overlays: sheets,
+            gesture: dtChart && dtChart.gesture ? dtChart.gesture.mode : "idle",
+            chart_bars: dtChart && dtChart.klines ? dtChart.klines.length : 0,
+            sockets: dtWs && dtWs.live ? dtWs.live.size : 0,
+            timers: DEV_OV.timers,
+            listeners: DEV_OV.listeners,
+            mem_mb: devOvMemory(),
+            runtime_state: rt
+          };
+        } catch (error) { return { page: null, error: String((error && error.message) || error) }; }
+      }
+      // UI 心跳 + 冻结看守:心跳间隔 > 3s(页面可见)记录 UI_FREEZE(带面包屑与状态快照)
+      setInterval(() => {
+        try {
+          if (document.hidden) return;
+          const freeze = devPerf.beat(Date.now(), perfFreezeSnapshot());
+          if (freeze) {
+            const last = freeze.breadcrumbs.length ? freeze.breadcrumbs[freeze.breadcrumbs.length - 1] : null;
+            diagLog("ui-freeze", new Error("UI_FREEZE " + freeze.gapMs + "ms 无心跳 · 最后动作 " + ((last && last.label) || "--")));
+          }
+        } catch (error) { /* 看守自身不许影响主流程 */ }
+      }, 200);
+      function afterPaint(fn) {
+        requestAnimationFrame(() => { requestAnimationFrame(() => { try { fn(); } catch (error) { diagLog("after-paint", error); } }); });
+      }
+      function tapHandle(el, label) {
+        const h = el && el.__pressHandle;
+        if (h) return h;
+        const handle = devPerf.begin(label || (el && el.dataset && el.dataset.tap) || (el && el.id) || "tap");
+        devPerf.note("tap:" + handle.label);
+        return handle;
+      }
+      function perfMark(handle, phase) { try { if (handle) devPerf.mark(handle, phase); } catch (error) { /* ignore */ } }
+      // 按压反馈:pointerdown 立即加 .pressed(不等 click handler),pointerup/cancel 移除。
+      // 文档级委托(一个监听),不给每个列表行单独绑事件,不会随页面切换累积。
+      let pressedEl = null;
+      document.addEventListener("pointerdown", (event) => {
+        try {
+          const target = event.target;
+          const el = target && target.closest ? target.closest(".nav-btn, button, .sg-row, .mk-row, .chip, .theme-opt, .acc-head") : null;
+          if (!el) return;
+          pressedEl = el;
+          el.classList.add("pressed");
+          const label = (el.dataset && el.dataset.tap) ? el.dataset.tap
+            : el.classList.contains("nav-btn") && el.dataset.page ? "tab:" + el.dataset.page
+            : el.id ? ("id:" + el.id) : "btn";
+          const handle = devPerf.begin(label);
+          el.__pressHandle = handle;
+          devPerf.note("tap:" + label);
+          requestAnimationFrame(() => perfMark(handle, "feedback"));
+        } catch (error) { /* 反馈层失败不影响点击本身 */ }
+      }, { passive: true, capture: true });
+      const clearPressed = () => {
+        try { if (pressedEl) pressedEl.classList.remove("pressed"); } catch (error) { /* ignore */ }
+        pressedEl = null;
+      };
+      document.addEventListener("pointerup", clearPressed, { passive: true, capture: true });
+      document.addEventListener("pointercancel", clearPressed, { passive: true, capture: true });
 
       function saveSettings() {
         localStorage.setItem("quantSettings", JSON.stringify({
@@ -2555,8 +2700,11 @@ export const page = String.raw`<!doctype html>
           let symbol = $("watchInput").value.trim().toUpperCase().replace("/", "");
           if (!symbol) return;
           if (!symbol.endsWith("USDT")) symbol += "USDT";
-          if (!state.watch.includes(symbol)) state.watch.push(symbol);
-          localStorage.setItem("watchSymbols", JSON.stringify(state.watch));
+          // V16.2s:统一走 Watchlist Store(去重/持久化/失败提示都在 Store 内闭环)
+          const res = watchStore.add(symbol);
+          if (res.reason === "invalid_symbol") { toast("该币种不支持自选"); return; }
+          if (res.reason === "limit_reached") { toast("自选已达上限(" + watchStore.limit + " 个)"); return; }
+          if (res.reason === "persist_failed") { toast("自选保存失败", "error"); return; }
           $("watchInput").value = "";
           renderWatch();
         });
@@ -3799,13 +3947,16 @@ export const page = String.raw`<!doctype html>
 
       function openHealth() {
         setActivePage("health");
-        void (async () => {
-          try {
-            renderHealth(await loadHealth(false));
-          } catch (error) {
-            $("healthStatus").textContent = "健康检查读取失败:" + shortError(error);
-          }
-        })();
+        // V16.2s:健康检查要走多个上游,先切页绘制,再开始探测
+        afterPaint(() => {
+          void (async () => {
+            try {
+              renderHealth(await loadHealth(false));
+            } catch (error) {
+              $("healthStatus").textContent = "健康检查读取失败:" + shortError(error);
+            }
+          })();
+        });
       }
 
       function closeHealth() {
@@ -4021,6 +4172,12 @@ export const page = String.raw`<!doctype html>
         detailSymbol: state.symbol,
         detailInterval: state.interval,
         marketScroll: 0,
+        // V16.2s:市场页分段状态(市场/自选)——进详情再返回仍在原段;两段滚动位置各自保存
+        mkSeg: "market",
+        mkScroll: { market: 0, watch: 0 },
+        // V16.2s:详情K线缓存(缓存命中 → 打开详情先画旧图,再异步取新数据);上限 12 条
+        klinesCache: new Map(),
+        detailLoadingAt: 0,
         lastTickers: null,
         // V14.4:外部情报 / 预测 / 利润保护 / 回撤 的最近一次快照(供详情页与 AI Chat 复用)
         lastOi: {},
@@ -4606,7 +4763,6 @@ export const page = String.raw`<!doctype html>
           return;
         }
         const list = Array.isArray(tickers) ? tickers : [];
-        const watch = new Set(state.watch);
         const top = list
           .filter((t) => String(t.symbol || "").endsWith("USDT") && !String(t.symbol).includes("_"))
           .sort((a, b) => Number(b.quoteVolume || 0) - Number(a.quoteVolume || 0));
@@ -4614,52 +4770,134 @@ export const page = String.raw`<!doctype html>
         const rest = top.filter((t) => !MARKET_SYMBOLS.includes(t.symbol)).slice(0, 20);
         const rows = wanted.concat(rest);
         box.replaceChildren();
-        for (const t of rows) {
-          const row = QE.marketRow(t, watch);
-          const el = vEl("div", "mk-row");
-          const left = vEl("div");
-          left.appendChild(vEl("div", "sym", row.display));
-          left.appendChild(vEl("div", "sub", row.watched ? "自选 · 点击查看" : "点击查看"));
-          el.appendChild(left);
-          const right = vEl("div", "right");
-          right.appendChild(vEl("div", "value", fmt.format(row.price)));
-          right.appendChild(vEl("div", "coin-sub " + (row.change24h > 0 ? "green" : row.change24h < 0 ? "red" : "muted"), row.change_text));
-          el.appendChild(right);
-          el.addEventListener("click", () => openDetail(row.symbol, viewState.detailInterval));
-          box.appendChild(el);
-        }
+        if (!rows.length) box.appendChild(vEl("div", "mk-empty", "暂时读不到行情,稍后再试"));
+        for (const t of rows) box.appendChild(marketRowEl(t));
         renderWatchList(list);
         return rows;
       }
 
+      // V16.2s 统一市场行:Symbol | Price(右对齐) | 24h(定宽) | Star(44px 定宽)
+      function marketRowEl(t) {
+        const symbol = String((t && t.symbol) || "");
+        const el = vEl("div", "mk-row");
+        el.dataset.tap = "coin:" + symbol;
+        const main = vEl("div", "mk-main");
+        main.appendChild(vEl("div", "sym", symbol.replace("USDT", "/USDT")));
+        el.appendChild(main);
+        const price = Number((t && t.lastPrice) || 0);
+        el.appendChild(vEl("div", "value mk-price", price > 0 ? fmt.format(price) : "--"));
+        const chg = Number((t && t.priceChangePercent) || 0);
+        el.appendChild(vEl("div", "mk-chg " + (chg > 0 ? "green" : chg < 0 ? "red" : "muted"), (chg > 0 ? "+" : "") + chg.toFixed(2) + "%"));
+        el.appendChild(starButton(symbol));
+        el.addEventListener("click", () => { void openDetail(symbol, viewState.detailInterval, el); });
+        return el;
+      }
+      // 收藏按钮统一组件:市场列表 / 搜索结果 / 币种详情 同一套 DOM 与状态源(watchStore)
+      function starButton(symbol) {
+        const watched = watchStore.has(symbol);
+        const btn = vEl("button", "star" + (watched ? " on" : ""), watched ? "★" : "☆");
+        btn.type = "button";
+        btn.dataset.star = symbol;
+        btn.dataset.tap = "star:" + symbol;
+        btn.setAttribute("aria-label", (watched ? "取消自选 " : "加入自选 ") + symbol);
+        btn.setAttribute("aria-pressed", watched ? "true" : "false");
+        btn.addEventListener("click", (event) => {
+          event.stopPropagation();   // 星标只管自选,不进详情
+          toggleWatchFrom(symbol, btn);
+        });
+        return btn;
+      }
+      function toggleWatchFrom(symbol, btn) {
+        const h = tapHandle(btn, "star:" + symbol);
+        perfMark(h, "nav_requested");
+        const res = watchStore.toggle(symbol);
+        if (res.reason === "persist_failed") {
+          toast("自选保存失败", "error");
+          diagLog("watch-persist", new Error(String(res.error || "persist_failed")));
+        } else if (res.reason === "limit_reached") {
+          toast("自选已达上限(" + watchStore.limit + " 个)");
+        } else if (res.reason === "invalid_symbol") {
+          toast("该币种不支持自选");
+        }
+        perfMark(h, "ready");
+      }
+      // 自选变化 → 全站星标同步 + 自选列表即时重绘(optimistic:先动 UI,失败由 Store 回滚并通知到这里)
+      function syncWatchUI(evt) {
+        document.querySelectorAll("[data-star]").forEach((btn) => {
+          const on = watchStore.has(btn.dataset.star);
+          btn.classList.toggle("on", on);
+          btn.textContent = on ? "★" : "☆";
+          btn.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        syncDetailStar();
+        renderWatchList(viewState.lastTickers || []);
+        if (evt && evt.reason === "rollback") toast("自选保存失败(已回滚)", "error");
+      }
+      // 市场/自选 分段切换:滑块先动、内容随后;两段各自记忆滚动位置
+      function setMarketSeg(seg, options) {
+        const opts = options || {};
+        const next = seg === "watch" ? "watch" : "market";
+        const prev = viewState.mkSeg === "watch" ? "watch" : "market";
+        viewState.mkSeg = next;
+        const segEl = $("mkSeg");
+        if (segEl) segEl.dataset.seg = next;
+        const mBtn = $("mkSegMarket");
+        const wBtn = $("mkSegWatch");
+        if (mBtn) { mBtn.classList.toggle("active", next === "market"); mBtn.setAttribute("aria-selected", next === "market" ? "true" : "false"); }
+        if (wBtn) { wBtn.classList.toggle("active", next === "watch"); wBtn.setAttribute("aria-selected", next === "watch" ? "true" : "false"); }
+        const listBox = $("mkList");
+        const watchBox = $("mkWatchList");
+        if (listBox) listBox.classList.toggle("hidden", next !== "market");
+        if (watchBox) watchBox.classList.toggle("hidden", next !== "watch");
+        if (next === "watch" && !opts.skipRender) renderWatchList(viewState.lastTickers || []);
+        if (prev !== next && !opts.skipScroll) {
+          viewState.mkScroll[prev] = window.scrollY || 0;
+          const target = viewState.mkScroll[next] || 0;
+          afterPaint(() => { try { window.scrollTo(0, target); } catch (error) { /* ignore */ } });
+        }
+      }
+
       function renderWatchList(tickers) {
         const box = $("mkWatchList");
+        if (!box) return;
         box.replaceChildren();
-        if (!state.watch.length) { box.appendChild(vEl("div", "v-note", "还没有添加自选")); return; }
+        const watch = watchStore.list();
+        if (!watch.length) {
+          const empty = vEl("div", "mk-empty");
+          empty.appendChild(vEl("div", null, "还没有自选币种"));
+          empty.appendChild(vEl("div", null, "可以在市场中点击 ☆ 添加。"));
+          box.appendChild(empty);
+          return;
+        }
         const list = Array.isArray(tickers) ? tickers : [];
-        for (const symbol of state.watch) {
-          const t = list.find((x) => x.symbol === symbol) || {};
-          const el = vEl("div", "mk-row");
-          const left = vEl("div");
-          left.appendChild(vEl("div", "sym", symbol.replace("USDT", "/USDT")));
-          el.appendChild(left);
-          const right = vEl("div", "right");
-          right.appendChild(vEl("div", "value", t.lastPrice ? fmt.format(Number(t.lastPrice)) : "--"));
-          right.appendChild(vEl("div", "coin-sub " + (Number(t.priceChangePercent || 0) >= 0 ? "green" : "red"), t.priceChangePercent ? QE.fmtPct(t.priceChangePercent) : "--"));
-          el.appendChild(right);
-          el.addEventListener("click", () => openDetail(symbol, viewState.detailInterval));
+        for (const symbol of watch) {
+          const t = list.find((x) => x.symbol === symbol) || { symbol: symbol };
+          const el = marketRowEl(t);
+          if (!(Number(t.lastPrice || 0) > 0)) {
+            const priceEl = el.querySelector(".mk-price");
+            if (priceEl) priceEl.textContent = "当前不可用";
+          }
           box.appendChild(el);
         }
       }
 
-      async function openDetail(symbol, interval) {
-        viewState.detailSymbol = symbol || viewState.detailSymbol;
-        viewState.detailInterval = interval || viewState.detailInterval;
+      async function openDetail(symbol, interval, sourceEl) {
+        const nextSymbol = symbol || viewState.detailSymbol;
+        const nextInterval = interval || viewState.detailInterval;
+        // V16.2s 防重复:1.2s 内对"同一币种+周期"的重复点击不重建、不重复发请求(第二次点击不创建第二个页面)
+        if (currentPage === "detail" && nextSymbol === viewState.detailSymbol && nextInterval === viewState.detailInterval
+          && viewState.detailLoadingAt && Date.now() - viewState.detailLoadingAt < 1200) {
+          return viewState.lastDetail;
+        }
+        const handle = tapHandle(sourceEl, "coin:" + nextSymbol);
+        perfMark(handle, "nav_requested");
+        viewState.detailLoadingAt = Date.now();
+        viewState.detailSymbol = nextSymbol;
+        viewState.detailInterval = nextInterval;
         state.symbol = viewState.detailSymbol;
         // 普通进入详情 = 退出复盘(openReview 会在本函数返回后重新写入复盘状态)
         viewState.review = null;
         dtChart.review = null;
-        renderReviewBlock();
         dtChart.marks = [];
         dtChart.marksSymbol = null;
         dtChart.subMs = 0;          // V18:重新进入详情回到标准周期(秒级模式不跨会话保留)
@@ -4668,9 +4906,52 @@ export const page = String.raw`<!doctype html>
         if (emptyEl) emptyEl.textContent = "暂无K线";
         dtRenderDetailPeriods();
         dtRenderLegend();
+        renderReviewBlock();
+        // ① 先切页(同步)=> 浏览器下一帧即可绘制既有 DOM,不等任何网络
         setActivePage("detail");
         initDetailPeriods();
+        syncDetailStar();
+        // ② Shell 先行:缓存价格/涨跌 + 缓存K线旧图(有则立即画)
+        paintDetailFromCache();
+        requestAnimationFrame(() => perfMark(handle, "transition"));
+        afterPaint(() => perfMark(handle, "first_paint"));
+        // ③ 重活(分析/K线/情报)全部在页面出现之后异步完成
         await refreshDetail();
+        perfMark(handle, "ready");
+        return viewState.lastDetail;
+      }
+      // Shell 先行:用缓存 ticker 与K线缓存先把详情页画上(不空白、不等网络)
+      function paintDetailFromCache() {
+        try {
+          const symbol = viewState.detailSymbol;
+          if (!symbol) return;
+          $("dtSymbol").textContent = symbol.replace("USDT", "/USDT");
+          const t = (viewState.lastTickers || []).find((x) => x.symbol === symbol) || null;
+          if (t) {
+            const price = Number(t.lastPrice || 0);
+            if (price > 0) $("dtPrice").textContent = fmt.format(price);
+            const chg = Number(t.priceChangePercent || 0);
+            const chgEl = $("dtChange");
+            chgEl.textContent = (chg > 0 ? "+" : "") + chg.toFixed(2) + "%";
+            chgEl.className = chg > 0 ? "green" : chg < 0 ? "red" : "muted";
+          }
+          const key = String(symbol) + ":" + String(viewState.detailInterval || "");
+          const cached = viewState.klinesCache.get(key);
+          if (cached && cached.length) {
+            const emptyEl = $("dtChartEmpty");
+            if (emptyEl) emptyEl.classList.add("hidden");
+            setDetailKlines(cached);   // 先画缓存旧图;真实数据回来后由 setDetailKlines 原地合并
+          }
+        } catch (error) { diagLog("detail-shell", error); }
+      }
+      function syncDetailStar() {
+        const btn = $("dtStar");
+        if (!btn) return;
+        btn.dataset.star = viewState.detailSymbol || "";
+        const on = watchStore.has(viewState.detailSymbol);
+        btn.classList.toggle("on", on);
+        btn.textContent = on ? "★" : "☆";
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
       }
 
       function initDetailPeriods() {
@@ -5052,7 +5333,13 @@ export const page = String.raw`<!doctype html>
           && Number.isFinite(Number(k[1])) && Number.isFinite(Number(k[2])) && Number.isFinite(Number(k[3]))
           && Number.isFinite(Number(k[4])) && Number(k[4]) > 0 && Number(k[2]) >= Number(k[3]));
         if (!fetched.length) return;
-        const cur = dtChart.klines;
+        // V16.2s 真缺陷修复:跨币种/跨周期不得"按时间戳合并" ——
+        // 旧实现只比较最后一根时间戳(BTC 1h 与 ETH 1h 的最后一根开盘时间是同一个整点,
+        // 不满足"严格大于"→ 走合并分支 → 把新币K线覆盖到旧币历史之上,出现混合K线图)。
+        // 现在:数据序列不同(symbol:interval 变了)→ 整段替换并重置视口。
+        const seriesKey = String(viewState.detailSymbol || "") + ":" + String(viewState.detailInterval || "");
+        const sameSeries = dtChart.seriesKey === seriesKey;
+        const cur = sameSeries ? dtChart.klines : [];
         const prevTotal = cur.length;
         const wasLatest = !dtChart.vp || prevTotal === 0 || QE.chartApi.isAtLatest(dtChart.vp, prevTotal);
         const prevStart = dtChart.vp ? dtChart.vp.start : 0;
@@ -5075,12 +5362,23 @@ export const page = String.raw`<!doctype html>
             }
           }
         }
+        dtChart.seriesKey = seriesKey;
         dtChart.klines = rows;
+        if (!sameSeries) dtChart.vp = null;   // 新序列:视口回到默认(贴最新)
         if (!dtChart.vp || prevCount == null) dtChart.vp = QE.chartApi.createViewport(rows.length, {});
         else if (wasLatest) dtChart.vp = QE.chartApi.latestViewport({ total: rows.length, start: prevStart, count: prevCount }, rows.length);
         else dtChart.vp = QE.chartApi.clampViewport({ total: rows.length, start: prevStart, count: prevCount }, rows.length);
         if (dtChart.cross && dtChart.cross.index >= rows.length) dtChart.cross = null;
         viewState.lastKlines = klines;
+        // V16.2s:缓存最近K线(symbol+interval → rows,上限 12),再次进入同币详情时先画旧图
+        try {
+          viewState.klinesCache.delete(seriesKey);
+          viewState.klinesCache.set(seriesKey, fetched.slice(-260));
+          while (viewState.klinesCache.size > 12) {
+            const firstKey = viewState.klinesCache.keys().next().value;
+            viewState.klinesCache.delete(firstKey);
+          }
+        } catch (error) { /* 缓存失败不影响绘图 */ }
         scheduleDetailChart();
       }
 
@@ -5317,6 +5615,21 @@ export const page = String.raw`<!doctype html>
         dtChart.press = null;
       }
 
+      // ---- V16.2s 手势状态机:任一时刻只有一个主状态(idle / pan / pinch / scroll) ----
+      // 规则:
+      //   · 双指 = pinch(阻止页面滚动,preventDefault 只在这里无条件生效);
+      //   · 单指先"待判定",位移超过阈值后按主导方向锁定:横向 → pan(平移K线);纵向 → scroll
+      //     (图表让位,页面正常滚动,不再吃事件、不再 preventDefault);
+      //   · touchcancel / 离开详情页 → 强制回 idle(绝不留卡住的 press 定时器或半途手势)。
+      function dtResetGesture() {
+        dtCancelPress();
+        dtChart.gesture = null;
+      }
+      function dtOnTouchCancel() {
+        dtResetGesture();
+        scheduleDetailChart();
+      }
+
       function dtOnTouchStart(event) {
         const touches = event.touches || [];
         if (touches.length >= 2) {
@@ -5332,25 +5645,29 @@ export const page = String.raw`<!doctype html>
           return;
         }
         if (!dtChart.klines.length) return;
-        dtStartLongPress(dtEventPoint(event));
-        dtChart.gesture = { mode: "pan", lastX: dtEventPoint(event).x, moved: 0 };
+        const point = dtEventPoint(event);
+        dtStartLongPress(point);
+        dtChart.gesture = { mode: "pan", lastX: point.x, lastY: point.y, moved: 0, decided: false };
       }
 
       function dtOnTouchMove(event) {
         const touches = event.touches || [];
         const gesture = dtChart.gesture;
         if (!gesture) return;
-        event.preventDefault();
         const rect = dtChartRect();
         if (gesture.mode === "pinch" && touches.length >= 2) {
+          event.preventDefault();                       // 双指期间禁止页面滚动
           const dist = QE.chartApi.touchDistance(touches[0], touches[1]);
           const mid = (Number(touches[0].clientX) + Number(touches[1].clientX)) / 2;
           const factor = QE.chartApi.pinchFactor(gesture.lastDist, dist);
           if (Math.abs(factor - 1) > 0.002) {
             dtHideMarkPop();
-            const midRatio = QE.chartApi.touchMidX(touches[0], touches[1], rect.left, rect.width);
-            const zoomed = QE.chartApi.zoomViewport(dtChart.vp, factor, midRatio, dtChart.klines.length, {});
+            // V16.2s 锚点坐标修复:zoomViewport 的 anchorRatio 定义在"绘图区"(去掉左右内边距)上,
+            // 旧实现用整幅画布宽度算比例 → 锚点与命中测试两套坐标,缩放时时间轴漂移(±5 根级别)。
             const layout = dtLayoutOf(rect.width || 340);
+            const pad = QE.chartApi.CHART_DEFAULTS.pad;
+            const midRatio = QE.chartApi.touchMidX(touches[0], touches[1], rect.left + pad.left, layout.plotW);
+            const zoomed = QE.chartApi.zoomViewport(dtChart.vp, factor, midRatio, dtChart.klines.length, {});
             const panBars = QE.chartApi.dragBarsOf(mid - gesture.lastMid, layout, zoomed.count);
             dtChart.vp = QE.chartApi.panViewport(zoomed, panBars, dtChart.klines.length);
           }
@@ -5359,11 +5676,27 @@ export const page = String.raw`<!doctype html>
           scheduleDetailChart();
           return;
         }
+        if (gesture.mode === "scroll") return;          // 已让给页面滚动:不吃事件、不 preventDefault
         if (gesture.mode === "pan" && touches.length === 1) {
           const point = dtEventPoint(event);
-          const delta = point.x - gesture.lastX;
+          const dx = point.x - gesture.lastX;
+          const dy = point.y - (gesture.lastY == null ? point.y : gesture.lastY);
+          // 方向锁定(只判一次):纵向主导 → 放弃图表手势,页面照常滚动
+          if (!gesture.decided) {
+            if (Math.abs(dx) + Math.abs(dy) > 10) {
+              gesture.decided = true;
+              if (Math.abs(dy) > Math.abs(dx) * 1.2) {
+                dtCancelPress();
+                dtChart.gesture = { mode: "scroll", moved: gesture.moved };
+                return;
+              }
+              gesture.horizontal = true;
+            }
+          }
+          if (gesture.decided && gesture.horizontal) event.preventDefault();   // 横向平移:不让页面跟着动
           gesture.lastX = point.x;
-          gesture.moved += Math.abs(delta);
+          gesture.lastY = point.y;
+          gesture.moved += Math.abs(dx);
           if (gesture.moved > QE.chartApi.CHART_DEFAULTS.longPressMovePx) dtHideMarkPop();
           if (dtChart.press) {
             dtChart.press.moved = Math.max(dtChart.press.moved, Math.abs(point.x - dtChart.press.x) + Math.abs(point.y - dtChart.press.y));
@@ -5376,7 +5709,7 @@ export const page = String.raw`<!doctype html>
           }
           if (!dtChart.press) {
             const layout = dtLayoutOf(rect.width || 340);
-            dtChart.vp = QE.chartApi.panViewport(dtChart.vp, QE.chartApi.dragBarsOf(delta, layout, dtChart.vp.count), dtChart.klines.length);
+            dtChart.vp = QE.chartApi.panViewport(dtChart.vp, QE.chartApi.dragBarsOf(dx, layout, dtChart.vp.count), dtChart.klines.length);
             scheduleDetailChart();
           }
         }
@@ -5386,9 +5719,15 @@ export const page = String.raw`<!doctype html>
         const gesture = dtChart.gesture;
         const press = dtChart.press;
         const remaining = (event.touches || []).length;
-        if (remaining > 0) { dtCancelPress(); dtChart.gesture = { mode: "pan", lastX: dtEventPoint(event).x, moved: gesture ? gesture.moved : 0 }; return; }
+        if (remaining > 0) {
+          dtCancelPress();
+          const pt = dtEventPoint(event);
+          dtChart.gesture = { mode: "pan", lastX: pt.x, lastY: pt.y, moved: gesture ? gesture.moved : 0, decided: false };
+          return;
+        }
         // 轻点 = 命中交易标记时弹气泡;否则显示/隐藏十字光标(长按 = 保留十字光标)
-        if (press && !press.fired && (gesture ? gesture.moved : 0) <= QE.chartApi.CHART_DEFAULTS.longPressMovePx) {
+        // (scroll 让位状态不属于点击,不触发十字光标)
+        if (gesture && gesture.mode !== "scroll" && press && !press.fired && (gesture.moved || 0) <= QE.chartApi.CHART_DEFAULTS.longPressMovePx) {
           const index = dtIndexAt(press.x);
           if (!dtTryOpenMarkPop(press.x, press.y)) {
             if (dtChart.cross && dtChart.cross.index === index) dtClearCross();
@@ -5404,8 +5743,12 @@ export const page = String.raw`<!doctype html>
         event.preventDefault();
         dtHideMarkPop();
         const rect = dtChartRect();
-        const ratio = (Number(event.clientX) - rect.left) / (rect.width || 1);
-        dtChart.vp = QE.chartApi.zoomViewport(dtChart.vp, event.deltaY < 0 ? 1.15 : 1 / 1.15, ratio, dtChart.klines.length, {});
+        // 向上滚 = 放大(与"双指张开=放大"同口径):根数倍数 <1;
+        // 锚点比例同样必须用"绘图区"坐标(与命中测试一致),否则滚轮缩放会漂移时间轴
+        const layout = dtLayoutOf(rect.width || 340);
+        const pad = QE.chartApi.CHART_DEFAULTS.pad;
+        const ratio = (Number(event.clientX) - rect.left - pad.left) / Math.max(1, layout.plotW);
+        dtChart.vp = QE.chartApi.zoomViewport(dtChart.vp, event.deltaY < 0 ? 1 / 1.15 : 1.15, ratio, dtChart.klines.length, {});
         scheduleDetailChart();
       }
 
@@ -5459,7 +5802,7 @@ export const page = String.raw`<!doctype html>
         canvas.addEventListener("touchstart", dtOnTouchStart, { passive: false });
         canvas.addEventListener("touchmove", dtOnTouchMove, { passive: false });
         canvas.addEventListener("touchend", dtOnTouchEnd);
-        canvas.addEventListener("touchcancel", dtOnTouchEnd);
+        canvas.addEventListener("touchcancel", dtOnTouchCancel);
         canvas.addEventListener("mousedown", dtOnMouseDown);
         canvas.addEventListener("mousemove", dtOnMouseMove);
         canvas.addEventListener("mouseup", dtOnMouseUp);
@@ -7223,6 +7566,7 @@ export const page = String.raw`<!doctype html>
             dqOk: eng.dataQuality().ok,
             risk: risk.risk_level,
             riskOk: risk.allow_new_entry,
+            riskFlags: (risk && risk.risk_flags) || [],
             tasks: taskBag ? taskBag.health() : null,
             recovery: eng.recoveryReport() ? eng.recoveryReport().view : null,
             journal: eng.journalSummary(),
@@ -7239,40 +7583,66 @@ export const page = String.raw`<!doctype html>
         const hbAgeS = rt && rt.heartbeat_age_ms != null ? Math.round(QE.num(rt.heartbeat_age_ms, 0) / 1000) : null;
         const stAgeS = rt && rt.strategy_age_ms != null ? Math.round(QE.num(rt.strategy_age_ms, 0) / 1000) : null;
         const loopAbnormal = Boolean(svcAlive && rt && rt.strategy_stalled && rt.market_state === "HEALTHY");
-        const runtimeRows = rt ? [
-          ["后台运行时", String(rt.state || "--") + " · " + String(rt.instance_id || "无实例号") + " · v" + QE.num(rt.state_version, 0)],
-          ["运行时心跳", hbAgeS == null ? "无数据" : (hbAgeS + " 秒前" + (rt.stalled ? " · 已停滞(RUNTIME_STALL ×" + QE.num(rt.stall_events, 0) + ")" : ""))],
-          ["策略循环", loopAbnormal ? "后台服务存在,但策略循环异常" : (stAgeS == null ? "--" : (QE.num(rt.loops, 0) + " 轮 · 最近 " + stAgeS + " 秒前"))],
-          ["风控循环", QE.num(rt.risk_loops, 0) + " 轮" + (rt.risk_age_ms != null ? " · 最近 " + Math.round(QE.num(rt.risk_age_ms, 0) / 1000) + " 秒前" : "")],
-          ["行情健康", rt.market_state ? (String(rt.market_state) + (rt.market_stale ? " · 价格长时间未变化" : "") + (rt.market_age_ms != null ? " · 最近 " + Math.round(QE.num(rt.market_age_ms, 0) / 1000) + " 秒前" : "")) : "本地直连"]
-        ] : [];
+        // V16.2s:紧凑状态行(项目 | 状态 | 箭头);点任一行展开真实技术细节,再点收起。
+        // 每行的值都来自真实运行数据(heartbeat / last tick / provider / error / version),不写死。
+        const mktLast = viewState.devMarketTick ? new Date(viewState.devMarketTick).toLocaleTimeString() : null;
+        const tickersCount = (viewState.lastTickers || []).length;
+        const engStateOf = (() => {
+          if (mod.rt && mod.rt.state) return String(mod.rt.state) + " · loop " + QE.num(mod.rt.loops, 0);
+          if (viewState.lastDrawdown) return "运行中";
+          return "待启动";
+        })();
         const rows = [
-          ...runtimeRows,
-          ["行情数据", viewState.lastTickers && viewState.lastTickers.length ? "正常" : "异常"],
-          ["数据质量", mod.dq || "待检查"],
-          ["Paper 引擎", (viewState.lastDrawdown ? "正常" : "待启动")],
-          ["组合风险", mod.risk ? (mod.risk + (mod.riskOk ? "" : " · 已禁新开仓")) : "待评估"],
-          ["数据库", vstate.store ? "正常" : "内存模式"],
-          ["DeepSeek", "未配置(本地回答)"],
-          ["Research", bg.research.runs > 0 ? "正常" : "待触发"],
-          ["学习", mlRuntime.hasModel() ? "正常" : "回退规则"],
-          ["后台服务", bg.bg_data_timer ? "运行中" : "未启动"],
-          ["后台任务", mod.tasks ? mod.tasks.label : "未登记"],
-          ["自动杠杆", mod.lev ? ("正式模型 " + QE.num(mod.lev.champion && mod.lev.champion.short, 2) + "x · 有效样本 " + mod.lev.records + " · " + mod.lev.status) : "--"],
-          ["市场 Provider", mod.mkt ? (String(mod.mkt.state || "--") + (mod.mkt.provider ? " · " + mod.mkt.provider : "")) : "本地直连"],
-          ["Paper Runtime", mod.rt ? (mod.rt.state + " · loop " + QE.num(mod.rt.loops, 0)) : "--"],
-          ["最近策略 Tick", mod.rt && mod.rt.last_tick_at ? new Date(QE.num(mod.rt.last_tick_at, 0)).toLocaleTimeString() : "--"],
-          ["启动自检", mod.recovery ? mod.recovery.label : "未运行"],
-          ["决策日志", mod.journal ? (mod.journal.total + " 条") : "--"],
-          ["Profit Lock 监控", mod.pl ? (mod.pl.warning ? "TRADE_INTEGRITY_WARNING" : ("单仓最多 " + mod.pl.max_partials_per_position + " 次减仓 · 尘埃收尾 " + mod.pl.dust_closes)) : "--"],
-          ["学习数据", mod.lev ? (mod.lev.valid_positions + " 个有效完整仓位") : "--"]
+          ...(rt ? [
+            { k: "后台运行时", v: String(rt.state || "--"), ok: true, detail: "实例 " + String(rt.instance_id || "无实例号") + " · 状态版本 v" + QE.num(rt.state_version, 0) + " · 服务" + (svcAlive ? "在跑" : "未探测到") },
+            { k: "运行时心跳", v: hbAgeS == null ? "无数据" : (hbAgeS + " 秒前"), ok: !rt.stalled, detail: rt.stalled ? ("已停滞:RUNTIME_STALL ×" + QE.num(rt.stall_events, 0)) : ("最近一次心跳 " + (hbAgeS == null ? "--" : hbAgeS + " 秒前")) },
+            { k: "策略循环", v: loopAbnormal ? "异常" : (QE.num(rt.loops, 0) + " 轮"), ok: !loopAbnormal, detail: loopAbnormal ? "后台服务存在,但策略循环超过 " + (stAgeS == null ? "--" : stAgeS + " 秒") + " 未更新" : ("最近 " + (stAgeS == null ? "--" : stAgeS + " 秒前")) },
+            { k: "风控循环", v: QE.num(rt.risk_loops, 0) + " 轮", ok: true, detail: rt.risk_age_ms != null ? ("最近 " + Math.round(QE.num(rt.risk_age_ms, 0) / 1000) + " 秒前") : "无数据" },
+            { k: "行情健康", v: rt.market_state ? String(rt.market_state) : "本地直连", ok: !rt.market_stale, detail: (rt.market_age_ms != null ? "最近 " + Math.round(QE.num(rt.market_age_ms, 0) / 1000) + " 秒前" : "无数据") + (rt.market_stale ? " · 价格长时间未变化" : "") }
+          ] : []),
+          { k: "行情数据", v: tickersCount ? "正常" : "异常", ok: tickersCount > 0, detail: "币种 " + tickersCount + " 个" + (mktLast ? " · 最近刷新 " + mktLast : "") },
+          { k: "数据质量", v: mod.dq || "待检查", ok: mod.dqOk !== false, detail: mod.dqOk === false ? "数据质量检查未通过(详见系统诊断)" : "引擎数据质量摘要" },
+          { k: "Paper 引擎", v: engStateOf, ok: true, detail: "本地模拟引擎(无真实下单) · " + (mod.rt && mod.rt.last_tick_at ? "最近 tick " + new Date(QE.num(mod.rt.last_tick_at, 0)).toLocaleTimeString() : "无 tick 记录") },
+          { k: "组合风险", v: mod.risk ? (mod.risk + (mod.riskOk ? "" : " · 已禁新开仓")) : "待评估", ok: mod.riskOk !== false, detail: (mod.riskFlags && mod.riskFlags.length) ? ("风险标记:" + mod.riskFlags.join("、")) : "风险评估来自本地风控引擎" },
+          { k: "数据库", v: vstate.store ? "正常" : "内存模式", ok: true, detail: "本地历史库(IndexedDB,不用云端数据库)" },
+          { k: "Research", v: bg.research.runs > 0 ? "正常" : "待触发", ok: true, detail: "研究巡检 " + QE.num(bg.research.runs, 0) + " 次" },
+          { k: "学习", v: mlRuntime.hasModel() ? "正常" : "回退规则", ok: true, detail: "模型版本 " + String((mlUiState && mlUiState.version) || "无(规则回退)") },
+          { k: "后台服务", v: bg.bg_data_timer ? "运行中" : "未启动", ok: Boolean(bg.bg_data_timer), detail: "外部情报后台刷新节奏 " + Math.round(BG_DATA_INTERVAL_MS / 1000) + " 秒" },
+          { k: "后台任务", v: mod.tasks ? mod.tasks.label : "未登记", ok: true, detail: mod.tasks ? "任务健康由 TaskManager 统一统计" : "任务管理器未启动" },
+          { k: "自动杠杆", v: mod.lev ? ("正式模型 " + QE.num(mod.lev.champion && mod.lev.champion.short, 2) + "x") : "--", ok: true, detail: mod.lev ? ("有效样本 " + mod.lev.records + " · 状态 " + mod.lev.status) : "无数据" },
+          { k: "市场 Provider", v: mod.mkt ? (String(mod.mkt.state || "--") + (mod.mkt.provider ? " · " + mod.mkt.provider : "")) : "本地直连", ok: !(mod.mkt && mod.mkt.state && /DOWN|FAIL/.test(String(mod.mkt.state))), detail: (mod.mkt && mod.mkt.error) ? ("错误:" + String(mod.mkt.error)) : "上游状态来自后台运行时" },
+          { k: "启动自检", v: mod.recovery ? mod.recovery.label : "未运行", ok: true, detail: "启动恢复阶梯自检(异常时给出恢复步骤)" },
+          { k: "决策日志", v: mod.journal ? (mod.journal.total + " 条") : "--", ok: true, detail: "记录每次开/平/拒单的原因" },
+          { k: "Profit Lock 监控", v: mod.pl ? (mod.pl.warning ? "TRADE_INTEGRITY_WARNING" : "正常") : "--", ok: !(mod.pl && mod.pl.warning), detail: mod.pl ? ("单仓最多 " + mod.pl.max_partials_per_position + " 次减仓 · 尘埃收尾 " + mod.pl.dust_closes) : "无数据" },
+          { k: "学习数据", v: mod.lev ? (mod.lev.valid_positions + " 个有效完整仓位") : "--", ok: true, detail: "无效样本不计入学习与漂移检测" },
+          { k: "未读提醒", v: Number(mod.unread || 0) + " 条", ok: true, detail: "在通知中心查看,可一键全部已读" }
         ];
-        const bad = rows.filter((r) => r[1] === "异常" || /异常|停滞|FAILED/.test(String(r[1]))).length;
+        const bad = rows.filter((r) => r.ok === false).length;
         $("sysBadge").textContent = bad ? "有异常" : "正常";
         $("sysBadge").className = "pill " + (bad ? "red" : "green");
         const box = $("sysStatusBox");
-        box.replaceChildren(vTable(["项目", "状态"], rows));
-        box.appendChild(vEl("div", "v-note", "未读提醒 " + Number(mod.unread || 0) + " 条 · 技术细节(上游耗时/熔断/漂移指标)在「开发工具 · 行情健康检查」里。"));
+        box.replaceChildren();
+        for (const row of rows) box.appendChild(sysRowEl(row));
+        box.appendChild(vEl("div", "v-note", "技术细节(上游耗时/熔断/漂移指标)在「开发工具 · 行情健康检查」里。"));
+      }
+
+      // 系统状态单行:紧凑显示"项目 | 状态";点整行展开技术细节,再点收起(aria-expanded 同步)
+      function sysRowEl(row) {
+        const el = vEl("div", "sys-row");
+        el.dataset.tap = "sys:" + row.k;
+        el.appendChild(vEl("div", "sys-k", row.k));
+        const right = vEl("div", "sys-right");
+        right.appendChild(vEl("span", "sys-v" + (row.ok === false ? " red" : ""), String(row.v == null ? "--" : row.v)));
+        right.appendChild(vEl("span", "sg-chev", "›"));
+        el.appendChild(right);
+        if (row.detail) el.appendChild(vEl("div", "sys-detail", String(row.detail)));
+        el.setAttribute("role", "button");
+        el.setAttribute("aria-expanded", "false");
+        el.addEventListener("click", () => {
+          const open = el.classList.toggle("open");
+          el.setAttribute("aria-expanded", open ? "true" : "false");
+        });
+        return el;
       }
 
       // ================= V16:量化内核(只读观测页) =================
@@ -7639,8 +8009,15 @@ export const page = String.raw`<!doctype html>
       }
 
       function openKernel() {
+        const h = tapHandle($("openKernel"), "open:kernel");
+        perfMark(h, "nav_requested");
         setActivePage("kernel");
-        void renderKernel();
+        requestAnimationFrame(() => perfMark(h, "transition"));
+        // V16.2s:先让页面(含上一次的只读观测数据)绘制,再异步重算——不为"最新数字"卡住转场
+        afterPaint(() => {
+          perfMark(h, "first_paint");
+          void renderKernel().catch(() => {}).then(() => perfMark(h, "ready"));
+        });
       }
 
       function closeKernel() {
@@ -7879,8 +8256,14 @@ export const page = String.raw`<!doctype html>
       }
 
       function openDiag() {
+        const h = tapHandle($("openDiag"), "open:diag");
+        perfMark(h, "nav_requested");
         setActivePage("diag");
-        void renderDiag();
+        requestAnimationFrame(() => perfMark(h, "transition"));
+        afterPaint(() => {
+          perfMark(h, "first_paint");
+          void renderDiag().catch(() => {}).then(() => perfMark(h, "ready"));
+        });
       }
 
       function closeDiag() {
@@ -8726,6 +9109,10 @@ export const page = String.raw`<!doctype html>
       function saveCurrentViewState() {
         try {
           nav.save(currentPage, { scrollY: window.scrollY || 0 });
+          if (currentPage === "market") {
+            // V16.2s:记住"市场/自选"分段与两段各自的滚动位置(返回时恢复到原段)
+            nav.save("market", { seg: viewState.mkSeg === "watch" ? "watch" : "market", segScroll: { market: viewState.mkScroll.market, watch: viewState.mkScroll.watch } });
+          }
           if (currentPage === "detail") {
             nav.save("detail", {
               symbol: (($("dtSymbol") || {}).textContent || viewState.detailSymbol || null),
@@ -8738,6 +9125,17 @@ export const page = String.raw`<!doctype html>
       function restoreViewScroll(page) {
         try {
           const st = nav.get(page);
+          if (page === "market" && st && (st.seg === "watch" || st.seg === "market")) {
+            // V16.2s:先恢复分段(内容即时可见,不重跑渲染),再恢复该段滚动位置
+            if (st.seg && st.seg !== viewState.mkSeg) {
+              viewState.mkSeg = st.seg;   // 直接置位,避免 setMarketSeg 把"当前滚动"写进旧段
+              setMarketSeg(st.seg, { skipScroll: true });
+            }
+            if (st.segScroll && typeof st.segScroll === "object") {
+              viewState.mkScroll.market = QE.num(st.segScroll.market, viewState.mkScroll.market);
+              viewState.mkScroll.watch = QE.num(st.segScroll.watch, viewState.mkScroll.watch);
+            }
+          }
           if (!st || !Number.isFinite(st.scrollY) || st.scrollY <= 0) return;
           if (navRestoreHandle && navRestoreHandle.cancel) navRestoreHandle.cancel();
           navRestoreHandle = QE.restoreScrollAfterReady({
@@ -8777,13 +9175,20 @@ export const page = String.raw`<!doctype html>
           }
         } catch (error) { /* 某些环境禁用 history:退化为无拦截 */ }
       }
-      // 统一返回:弹轨迹;栈空时兜底(详情→市场,其它子页→我的),恢复目标页并等渲染完成后恢复滚动
+      // 统一返回:弹轨迹;栈空时兜底(详情→市场,其它子页→我的)。
+      // V16.2s:先切回目标页(缓存 DOM 立即显示+滚动恢复),数据刷新放到首绘之后后台进行 ——
+      // 返回不等网络(旧实现 await ensurePage 之后才恢复滚动,返回会"停一下")。
       async function goBack() {
+        const h = devPerf.begin("back:" + currentPage);
+        devPerf.note("back:" + currentPage);
         const target = nav.pop(currentPage);
         const resolved = (target && target !== currentPage) ? target : (currentPage === "detail" ? "market" : "settings");
         setActivePage(resolved);
-        await ensurePage(resolved);
-        restoreViewScroll(resolved);
+        requestAnimationFrame(() => perfMark(h, "transition"));
+        afterPaint(() => {
+          perfMark(h, "first_paint");
+          void ensurePage(resolved).catch(() => {}).then(() => perfMark(h, "ready"));
+        });
         return resolved;
       }
 
@@ -8796,7 +9201,8 @@ export const page = String.raw`<!doctype html>
         }
         if (currentPage && currentPage !== name) cancelPageRequests(currentPage);
         // V18:离开详情页必须关掉实时订阅(进入 100 次也不允许堆出 100 个 socket)
-        if (name !== "detail" && currentPage === "detail") dtWsClose();
+        // V16.2s:同时复位手势状态机(绝不把半途手势/press 定时器带出详情页)
+        if (name !== "detail" && currentPage === "detail") { dtWsClose(); dtResetGesture(); }
         // V15 AI Chat 不常驻:离开 Coin Detail 自动收起(不允许悬浮在 Market 上)
         if (name !== "detail" && name !== currentPage && typeof chatIsOpen === "function" && chatIsOpen()) {
           closeChat({ fromNav: true });
@@ -8819,27 +9225,77 @@ export const page = String.raw`<!doctype html>
         return [...document.querySelectorAll(".page")].filter((p) => p.classList.contains("active"));
       }
 
+      // 统一 Accordion 行为:开/关走同一条路径(classList.toggle + aria-expanded),杜绝"只能开不能收";
+      // 展开时才惰性拉数据(onOpen),再点一次立即收起。
+      function toggleAccordion(accEl, headEl, onOpen) {
+        const acc = typeof accEl === "string" ? $(accEl) : accEl;
+        const head = typeof headEl === "string" ? $(headEl) : headEl;
+        if (!acc || !head) return false;
+        const open = !acc.classList.contains("open");
+        acc.classList.toggle("open", open);
+        head.setAttribute("aria-expanded", open ? "true" : "false");
+        devPerf.note((open ? "acc-open:" : "acc-close:") + (acc.id || "?"));
+        if (open && typeof onOpen === "function") { try { onOpen(); } catch (error) { diagLog("acc-open", error); } }
+        return open;
+      }
+      function bindAccordion(accId, headId, onOpen) {
+        const head = $(headId);
+        if (!head) return;
+        const activate = () => { toggleAccordion($(accId), head, onOpen); };
+        head.addEventListener("click", activate);
+        head.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); }
+        });
+      }
+
       async function initMobileUI() {
         // 导航:切换时取消该视图在途请求(Paper Engine 不受影响)
+        // V16.2s:①"先绘制、后重活" —— active 切换后先让浏览器画一帧,再跑该页数据刷新;
+        //         ②重复点击当前 Tab = 回到顶部(不再重跑全量渲染、不重复请求);
+        //         ③点击埋点(tap→feedback→transition→first_paint→ready)。
         document.querySelectorAll(".nav-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
             const page = btn.dataset.page;
+            const h = tapHandle(btn, "tab:" + page);
+            perfMark(h, "nav_requested");
+            if (page === currentPage) {
+              // 重复点击当前 Tab = 回到顶部(不重跑全量渲染);scrollTo 在测试沙箱/旧内核里可能缺失,双保险
+              try {
+                if (typeof window.scrollTo === "function") window.scrollTo({ top: 0, behavior: "smooth" });
+              } catch (error) {
+                try { if (typeof window.scrollTo === "function") window.scrollTo(0, 0); } catch (error2) { /* ignore */ }
+              }
+              perfMark(h, "ready");
+              return;
+            }
             document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item === btn));
             setActivePage(page);
             RM.leaveAll(["paper"]);
-            void ensurePage(page);
+            requestAnimationFrame(() => perfMark(h, "transition"));
+            afterPaint(() => {
+              perfMark(h, "first_paint");
+              void ensurePage(page).catch(() => {}).then(() => perfMark(h, "ready"));
+            });
           });
+        });
+        // V16.2s:市场/自选 分段控件(滑块先动、内容随后;纯状态切换,不等网络)
+        $("mkSegMarket").addEventListener("click", () => {
+          const h = tapHandle($("mkSegMarket"), "seg:market");
+          perfMark(h, "nav_requested");
+          setMarketSeg("market");
+          perfMark(h, "ready");
+        });
+        $("mkSegWatch").addEventListener("click", () => {
+          const h = tapHandle($("mkSegWatch"), "seg:watch");
+          perfMark(h, "nav_requested");
+          setMarketSeg("watch");
+          perfMark(h, "ready");
         });
         // V16.2:市场滚动位置改由 navState 在"离开页面"时精确采样(setActivePage 内保存),
         // 不再用"边滚边记 + mkList.scrollTop 恢复"的旧写法(恢复写错了元素,滚动的是 window)。
         $("mkScanBtn").addEventListener("click", () => {
           setActivePage("scan");
           $("chatFab").classList.remove("show");
-        });
-        $("mkWatchBtn").addEventListener("click", () => {
-          setActivePage("watch");
-          $("chatFab").classList.remove("show");
-          void renderWatch();
         });
         $("openMonitorLegacy").addEventListener("click", () => {
           setActivePage("monitor");
@@ -8850,7 +9306,8 @@ export const page = String.raw`<!doctype html>
           setActivePage("watch");
           void renderWatch();
         });
-        $("openLearning").addEventListener("click", () => { void renderLearning(); });
+        // V16.2s 学习状态:统一 Accordion(开→惰性渲染明细,再点→收起)
+        bindAccordion("learningAcc", "openLearning", () => { void renderLearning(); });
         // V19:我的 > 外观(主题 Bottom Sheet)/ 通知(设置子页入口)
         $("openThemeSheet").addEventListener("click", openThemeSheet);
         $("themeSheetClose").addEventListener("click", closeThemeSheet);
@@ -8881,11 +9338,17 @@ export const page = String.raw`<!doctype html>
         });
         $("dtBackBtn").addEventListener("click", () => { void goBack(); });
         $("dtRefreshBtn").addEventListener("click", () => { void refreshDetail(); });
-        $("dtDetailsBtn").addEventListener("click", () => { $("dtDetails").classList.toggle("hidden"); });
+        // V16.2s:星标(详情页)与市场/搜索共用同一 Watchlist Store
+        $("dtStar").addEventListener("click", () => { toggleWatchFrom(viewState.detailSymbol, $("dtStar")); });
+        $("dtDetailsBtn").addEventListener("click", () => {
+          const hidden = $("dtDetails").classList.toggle("hidden");
+          $("dtDetailsBtn").setAttribute("aria-expanded", hidden ? "false" : "true");
+        });
         $("dtExternalToggle").addEventListener("click", () => {
           const body = $("dtExternalBody");
           const open = body.classList.toggle("hidden");
           $("dtExternalToggle").textContent = open ? "展开" : "收起";
+          $("dtExternalToggle").setAttribute("aria-expanded", open ? "false" : "true");
         });
         $("chatFab").addEventListener("click", openChat);
         // V19:AI FAB 避让 —— 滚动时淡出(不压住列表右列价格),停下 600ms 恢复;滚到底另有 FAB 高度预留
@@ -8954,7 +9417,8 @@ export const page = String.raw`<!doctype html>
         $("pfEmergencyBtn").addEventListener("click", () => { void emergencyCloseAll(); });
         $("pfExportBtn").addEventListener("click", () => exportPaperRecords("csv"));
         $("resetPaperBtn").addEventListener("click", () => { void resetPaperAccount(); });
-        $("openSysStatus").addEventListener("click", () => { renderSysStatus(); });
+        // V16.2s 系统状态:统一 Accordion —— 点开(惰性渲染真实数据),再点立即收起(修复"展开后不能收回")
+        bindAccordion("sysAcc", "openSysStatus", () => { void renderSysStatus(); });
         // V16:量化内核(只读观测)/ 系统诊断(黑匣子)/ 开发用性能浮层(默认关闭)
         $("openKernel").addEventListener("click", openKernel);
         $("kernelBackBtn").addEventListener("click", () => { void goBack(); });
@@ -9139,10 +9603,19 @@ export const page = String.raw`<!doctype html>
         if (!hits.length) return;
         box.replaceChildren();
         for (const t of hits) {
+          // V16.2s:搜索结果同样使用统一星标组件(与市场/详情同一 Store、同一 DOM)
+          const row = vEl("div", "suggest-row");
           const btn = vEl("button", "chip", t.symbol.replace("USDT", "/USDT"));
           btn.type = "button";
-          btn.addEventListener("click", () => { $("mkSearch").value = ""; box.classList.remove("open"); void openDetail(t.symbol, viewState.detailInterval); });
-          box.appendChild(btn);
+          btn.dataset.tap = "coin:" + t.symbol;
+          btn.addEventListener("click", (event) => {
+            $("mkSearch").value = "";
+            box.classList.remove("open");
+            void openDetail(t.symbol, viewState.detailInterval, btn);
+          });
+          row.appendChild(btn);
+          row.appendChild(starButton(t.symbol));
+          box.appendChild(row);
         }
         box.classList.add("open");
       }
@@ -9164,7 +9637,7 @@ export const page = String.raw`<!doctype html>
         const detail = $("learningDetail");
         if (detail) {
           detail.textContent = "模型数量 " + models.length + " · 评估记录 " + evals.length + " · 学习样本 " + samples.length + (drift && drift.drift_score != null ? " · 漂移指标 " + drift.drift_score : "") + "(技术信息,日常无需关注)";
-          detail.classList.remove("hidden");   // V16.1-RV:点击"学习状态"后展示明细(.hidden 现在真的会隐藏)
+          // V16.2s:明细的显隐由 Accordion 统一管理(这里只填真实数据,不再手动摘 .hidden)
         }
       }
 

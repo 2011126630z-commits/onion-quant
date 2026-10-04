@@ -45,6 +45,7 @@ const SUITES = [
   "tools/test-runtime-verify.mjs",
   "tools/test-nav-state.mjs",
   "tools/test-nav-stress.mjs",
+  "tools/test-v162s-ui.mjs",
   "tools/check-artifacts.mjs",
   "tools/smoke-http.mjs"
 ];

@@ -135,6 +135,8 @@ const PAGE_MODULES = [
   "src/ui/uiStore.js",
   "src/ui/requestManager.js",
   "src/ui/chart.js",
+  "src/ui/watchlist.js",
+  "src/ui/devPerf.js",
   "src/ui/viewModels.js",
   "src/ui/navState.js"
 ];
@@ -273,7 +275,10 @@ const PAGE_EXPORTS = [
   "ENTRY_GATE_SHADOW_VERSION", "resolveSkippedOutcome", "gateShadowEvaluate", "calibrationAdvice", "entryGateShadowView",
   "TREE_MODEL_VERSION", "SUPPORTED_TREE_FORMATS", "TREE_MODEL_ROLE", "TREE_LABELS", "validateTreeArtifact",
   "predictForest", "treeRowFromAnalysis", "resolveTreeModel", "toShadowMl",
-  "UI_STORE_VERSION", "UI_BUCKETS", "UI_BUCKET_ZH", "createUiStore", "shouldRender", "uiStoreView"
+  "UI_STORE_VERSION", "UI_BUCKETS", "UI_BUCKET_ZH", "createUiStore", "shouldRender", "uiStoreView",
+  // ---- V16.2s 统一自选 / 点击延迟观测 ----
+  "WATCHLIST_VERSION", "WATCHLIST_STORAGE_KEY", "normalizeWatchSymbol", "watchlistDisplay", "createWatchlistStore",
+  "DEV_PERF_VERSION", "DEV_PERF_PHASES", "createDevPerf"
 ];
 
 function stripForBundle(code, keepExports) {
@@ -344,6 +349,24 @@ if (!fs.existsSync(baselinePath) && fs.existsSync(W("index.js"))) {
 }
 
 const pageSrc = read("src/ui/page.js");
+// 构建期守卫(2026-10-04 实测踩到过):页面本体是 String.raw 模板,
+// 模板体内出现【未转义的反引号】(哪怕在注释里)会提前终止模板 —— 分片校验仍会通过,
+// 但生成的文件整体是坏的(Node 会把它当 CJS,命名导出消失)。这里直接数反引号:
+// 正确的 page.js 只有两处未转义反引号(模板开头/结尾);其余必须写成 \` 或不用。
+{
+  let stray = [];
+  const lines = pageSrc.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const ln = lines[i];
+    for (let c = 0; c < ln.length; c += 1) {
+      if (ln[c] === "`" && (c === 0 || ln[c - 1] !== "\\")) stray.push(i + 1);
+    }
+  }
+  // 合法:第 3 行 `export const page = String.raw\` 与末行 "</html>\`;" 各一处
+  if (stray.length !== 2) {
+    throw new Error("页面模板反引号守卫失败:未转义反引号出现在行 " + stray.join(",") + "(应为 2 处:模板开头/结尾)");
+  }
+}
 const pageBundle = buildPageBundle();
 const engineVersion = (read("src/engine/constants.js").match(/ENGINE_VERSION\s*=\s*"([^"]+)"/) || [, "unknown"])[1];
 const qeHash = createHash("sha1").update(pageBundle).digest("hex").slice(0, 10);

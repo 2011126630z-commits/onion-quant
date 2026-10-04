@@ -14,9 +14,9 @@
 
 ```
 Latest APK:  apk/app-latest.apk   (Releases 附件同名 app-latest.apk)
-Version:     v16.2(16.2.0-paper)
-Size:        4.49 MB (4,712,010 bytes)
-SHA256:      0ceaf92442b51a8738432bf7d9b88c3808ca0aaa05834ba4fd1057455d0d8b3d
+Version:     v16.2s(16.2.0-paper)
+Size:        4.84 MB (5,075,615 bytes)
+SHA256:      05c885219925be9b531c8fa83c6335e81ce09daf55fd4f42b75fa5cdd5f17bfa
 ```
 
 - **PAPER ONLY**:无真实 API Key、无真实下单;应用内所有"开仓/平仓"都发生在本地模拟账户。
@@ -39,7 +39,7 @@ dev-server.mjs        本地开发服务器(node dev-server.mjs → http://local
 
 ```bash
 node tools/build.mjs          # 生成 worker/index.js 与页面内联脚本(会做语法校验)
-node tools/run-tests.mjs      # 全量测试(当前 41 套件 / 3918 断言 / 0 失败)
+node tools/run-tests.mjs      # 全量测试(当前 42 套件 / 4005 断言 / 0 失败)
 node tools/build-android.mjs && npx cap sync android
 cd android && gradlew.bat assembleDebug   # APK 输出在 android/app/build/outputs/apk/debug/
 ```
@@ -50,6 +50,7 @@ APK 发布流程(本仓库约定):`构建 → 测试通过 → 复制到 apk/app
 
 | 版本 | 要点 |
 |---|---|
+| v16.2s | 点击延迟专修(先绘制后重活/Shell 先行/返回不等网络)、系统状态逐项可展开、市场↔自选分段控件与统一自选 Store、K线 pinch 方向与锚点修复、手势状态机与冻结看守、四档宽度零溢出 |
 | v16.2 | 课堂式手机 UI:黑白闪屏修复、返回状态连续性(滚动逐像素恢复/返回栈)、按钮体系统一 |
 | v16.1 | 真机运行时验收:修复后台运行时行情接线(曾从未推进)、保护池/HWM 持久化、资金语义修正 |
 | v15.x | Android Paper App 收口、后台运行时、归因与存储修复 |

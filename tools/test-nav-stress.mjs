@@ -522,13 +522,25 @@ check("平移后不再贴最新", sandbox.window.QEngine.chartApi.isAtLatest(cha
 dom.byId.get("dtLatestBtn").click();
 await flush(6);
 check("「最新」按钮回到最右", sandbox.window.QEngine.chartApi.isAtLatest(chartState.vp, chartState.klines.length) === true);
-// Pinch 缩放
+// Pinch 缩放(方向语义:张开=放大=可见根数减少;锚点=双指中点保持不动)
 const countBefore = chartState.vp.count;
+const layoutNow = sandbox.window.QEngine.chartApi.layoutOf(390, 268, {});
+const midX = 150;
+const idxBeforeZoom = sandbox.window.QEngine.chartApi.indexAtX(midX, chartState.vp, layoutNow);
 canvas.dispatch("touchstart", { type: "touchstart", touches: [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }], preventDefault() {}, timeStamp: Date.now() });
 canvas.dispatch("touchmove", { type: "touchmove", touches: [{ clientX: 60, clientY: 100 }, { clientX: 240, clientY: 100 }], preventDefault() {}, timeStamp: Date.now() });
 canvas.dispatch("touchend", { type: "touchend", touches: [], timeStamp: Date.now() });
-check("Pinch 缩放改变了可见K线数量", chartState.vp.count !== countBefore, `${countBefore} → ${chartState.vp.count}`);
-check("缩放后仍贴最新(锚点在中点)", sandbox.window.QEngine.chartApi.isAtLatest(chartState.vp, chartState.klines.length) === true);
+check("Pinch 张开=放大:可见根数减少", chartState.vp.count < countBefore, `${countBefore} → ${chartState.vp.count}`);
+{
+  const idxAfterZoom = sandbox.window.QEngine.chartApi.indexAtX(midX, chartState.vp, layoutNow);
+  check("缩放锚点稳定(双指中点处K线索引 ±1)", idxBeforeZoom != null && idxAfterZoom != null && Math.abs(idxAfterZoom - idxBeforeZoom) <= 1, `${idxBeforeZoom} → ${idxAfterZoom}`);
+}
+// 反向捏合 = 缩小 = 可见根数增加(方向不允许翻转)
+const countZoomedIn = chartState.vp.count;
+canvas.dispatch("touchstart", { type: "touchstart", touches: [{ clientX: 60, clientY: 100 }, { clientX: 240, clientY: 100 }], preventDefault() {}, timeStamp: Date.now() });
+canvas.dispatch("touchmove", { type: "touchmove", touches: [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }], preventDefault() {}, timeStamp: Date.now() });
+canvas.dispatch("touchend", { type: "touchend", touches: [], timeStamp: Date.now() });
+check("Pinch 捏合=缩小:可见根数增加", chartState.vp.count > countZoomedIn, `${countZoomedIn} → ${chartState.vp.count}`);
 // Tap → 十字光标
 canvas.dispatch("touchstart", { type: "touchstart", touches: [{ clientX: 150, clientY: 120 }], preventDefault() {}, timeStamp: Date.now() });
 canvas.dispatch("touchend", { type: "touchend", touches: [], timeStamp: Date.now() });

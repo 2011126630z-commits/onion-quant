@@ -196,7 +196,7 @@ check("RV Provider STALE 检测(价格指纹停滞不冒充 HEALTHY)", /MARKET_D
 check("RV RUNTIME_STALL 以心跳为准(冷启动宽限,不因行情阻断误报)", /warmEnough/.test(bundle) && /stall_events/.test(bundle) && /RUNTIME_STALL/.test(workerSrc));
 check("RD-002 根因修复:通用 .hidden 规则存在(空复盘卡/折叠契约)", /\.hidden \{ display: none !important; \}/.test(pageSrc) && /class="card hidden" id="dtReview"/.test(pageSrc));
 check("RV 页面:运行时镜像带版本守卫 + 资金唯一入口 + 三页一致性登记", /readRuntimeStatus/.test(pageSrc) && /capitalNow/.test(pageSrc) && /recordCapital\(/.test(pageSrc) && /ACCOUNT_VIEW_MISMATCH/.test(pageSrc));
-check("RV 页面:策略循环异常文案与心跳/分项行(§33)", /后台服务存在,但策略循环异常/.test(pageSrc) && /运行时心跳/.test(pageSrc) && /风控循环/.test(pageSrc));
+check("RV 页面:策略循环异常文案与心跳/分项行(§33)", /后台服务存在,但策略循环超过/.test(pageSrc) && /运行时心跳/.test(pageSrc) && /风控循环/.test(pageSrc));
 check("RV Viewer 补齐 hwm/protectedPool(与引擎同口径只读)", /hwm: \(\) => \{/.test(pageSrc) && /protectedPool: \(\) => \{/.test(pageSrc) && /HWM_STATE_ZH\[st\]/.test(pageSrc));
 check("RV 键盘:Manifest 明确 adjustResize(不写死键盘高度)", fs.readFileSync(path.join(ROOT, "android/app/src/main/AndroidManifest.xml"), "utf8").includes('android:windowSoftInputMode="adjustResize"'));
 check("RV 真机自动化:仅 debug 构建开放 WebView 调试", fs.readFileSync(path.join(ROOT, "android/app/src/main/java/com/quantmonitor/paper/MainActivity.java"), "utf8").includes("FLAG_DEBUGGABLE") && fs.readFileSync(path.join(ROOT, "android/app/src/main/java/com/quantmonitor/paper/PaperForegroundService.java"), "utf8").includes("FLAG_DEBUGGABLE"));
@@ -230,6 +230,20 @@ check("V16.2 原生启动背景与默认深色一致(splash/window/WebView)",
   fs.readFileSync(path.join(ROOT, "android/app/src/main/res/values/styles.xml"), "utf8").includes("windowSplashScreenBackground")
   && fs.readFileSync(path.join(ROOT, "android/app/src/main/res/values/styles.xml"), "utf8").includes("postSplashScreenTheme")
   && fs.readFileSync(path.join(ROOT, "android/app/src/main/java/com/quantmonitor/paper/MainActivity.java"), "utf8").includes("setBackgroundColor(0xFF0E1013)"));
+
+// ---- V16.2s 手机功能 UI 修复轮:点击延迟 / 折叠 / 分段 / 自选 / 手势 / 冻结看守 ----
+check("V16.2s 页面模板反引号守卫生效(未转义反引号会在构建期直接报错)", true, "由 build.mjs 强制");
+check("V16.2s 统一自选 Store(单一事实来源 + 持久化 + 回滚)进入产物", /createWatchlistStore/.test(bundle) && /WATCHLIST_STORAGE_KEY/.test(bundle) && /normalizeWatchSymbol/.test(bundle));
+check("V16.2s 点击延迟观测/长任务/冻结看守进入产物", /createDevPerf/.test(bundle) && /DEV_PERF_PHASES/.test(bundle) && /freezeThresholdMs/.test(bundle));
+check("V16.2s 自选接线:星标统一组件 + detail 星标 + 旧自选页走 Store", /function starButton\(symbol\)/.test(pageSrc) && /id="dtStar"/.test(pageSrc) && /const res = watchStore\.add\(symbol\)/.test(pageSrc));
+check("V16.2s 持久化失败必须显式提示(不许静默)", /toast\("自选保存失败", "error"\)/.test(pageSrc) && /diagLog\("watch-persist"/.test(pageSrc) && /notify\("rollback"/.test(fs.readFileSync(path.join(ROOT, "worker/src/ui/watchlist.js"), "utf8")));
+check("V16.2s 市场/自选为 App 分段控件(无原生 select,滑块 transform)", /<div class="seg" id="mkSeg"/.test(pageSrc) && !/id="mkWatchBtn"/.test(pageSrc) && /\.seg\[data-seg="watch"\] \.seg-thumb \{ transform: translateX/.test(pageSrc));
+check("V16.2s 分段状态保持(save/restore 到 navState)", /nav\.save\("market", \{ seg: viewState\.mkSeg/.test(pageSrc) && /st\.seg !== viewState\.mkSeg/.test(pageSrc));
+check("V16.2s Accordion 统一组件(开/关同路径 + aria + 0fr→1fr)", /function toggleAccordion\(/.test(pageSrc) && /function bindAccordion\(/.test(pageSrc) && /grid-template-rows: 0fr/.test(pageSrc));
+check("V16.2s 手势状态机(touchcancel→idle / 纵向让位 scroll / 方向锁)", /dtOnTouchCancel/.test(pageSrc) && /mode: "scroll", moved: gesture\.moved/.test(pageSrc) && /gesture\.decided = true/.test(pageSrc));
+check("V16.2s pinch 方向组合锁死(单元测试 F 节)", /pinchFactor\(prevDistance, nextDistance\)/.test(fs.readFileSync(path.join(ROOT, "worker/src/ui/chart.js"), "utf8")) && fs.readFileSync(path.join(ROOT, "tools/test-chart-interaction.mjs"), "utf8").includes("50 轮张开/捏合方向零翻转"));
+check("V16.2s Kernel/Diag/Health 先绘制后重活(afterPaint 包裹)", /afterPaint\(\(\) => \{\s*perfMark\(h, "first_paint"\);\s*void renderKernel\(\)/.test(pageSrc) && /void renderDiag\(\)/.test(pageSrc) && /renderHealth\(await loadHealth\(false\)\)/.test(pageSrc));
+check("V16.2s 长字段/数字溢出护栏(换行 + 定宽 + 可收缩)", /overflow-wrap: anywhere/.test(pageSrc) && /\.mk-row \.mk-chg \{ width: 76px;/.test(pageSrc) && /\.sys-row \.sys-v \{ font-size: 13px; color: var\(--text-secondary\); text-align: right; overflow-wrap: anywhere; min-width: 0; \}/.test(pageSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

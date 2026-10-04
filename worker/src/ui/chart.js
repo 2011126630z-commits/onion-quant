@@ -237,11 +237,17 @@ export function touchMidX(a, b, rectLeft, rectWidth) {
   return clampNum((mid - left) / w, 0, 1);
 }
 
+// 双指距离变化 → 视口缩放系数,语义与 zoomViewport 一致:返回的是"可见K线根数倍数"。
+//   - 手指张开(next > prev) = 用户想放大 = 根数变少 → 返回 < 1;
+//   - 手指捏合(next < prev) = 用户想缩小 = 根数变多 → 返回 > 1。
+// 历史缺陷:本函数曾返回 next/prev(张开>1),而页面把返回值直接喂给 zoomViewport 的
+// "根数倍数"(count *= factor),组合后方向正好相反 —— 单元测试分别断言两半都过,
+// 组合却没有测试。现在的组合由 test-chart-interaction.mjs 的 F 节直接锁死。
 export function pinchFactor(prevDistance, nextDistance) {
   const p = num(prevDistance, 0);
   const n = num(nextDistance, 0);
   if (!(p > 0) || !(n > 0)) return 1;
-  return clampNum(n / p, 0.2, 5);
+  return clampNum(p / n, 0.2, 5);
 }
 
 // 像素位移 → 平移多少根K线(拖动时手指往右挪 = 看更早的数据)

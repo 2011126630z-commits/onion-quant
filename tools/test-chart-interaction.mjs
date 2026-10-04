@@ -153,7 +153,8 @@ check("长按:手指移动过多 → 不命中(判定为拖动)", isLongPress(60
 near("双指距离", touchDistance({ clientX: 0, clientY: 0 }, { clientX: 3, clientY: 4 }), 5, 1e-9);
 near("双指中点比例(半宽处)", touchMidX({ clientX: 50, clientY: 0 }, { clientX: 150, clientY: 0 }, 0, 200), 0.5, 1e-9);
 near("双指中点比例被夹在 0..1", touchMidX({ clientX: -500, clientY: 0 }, { clientX: -400, clientY: 0 }, 0, 200), 0, 1e-9);
-near("张开手指 → 比例 >1", pinchFactor(100, 150), 1.5, 1e-9);
+near("张开手指 → 根数倍数 <1(放大方向)", pinchFactor(100, 150), 100 / 150, 1e-9);
+near("捏合手指 → 根数倍数 >1(缩小方向)", pinchFactor(150, 100), 1.5, 1e-9);
 eq("距离为 0 时不做缩放", pinchFactor(0, 50), 1);
 near("拖动像素 → 根数(向右拖看更早)", dragBarsOf(30, layout, 60), -30 / stepOf(layout, 60), 1e-9);
 check("步长为 0 时安全返回 0", dragBarsOf(30, { plotW: 0 }, 60) === 0);
@@ -176,6 +177,43 @@ check("touchmove 使用 passive:false 才能 preventDefault", /addEventListener\
 check("新数据到达保留用户缩放位置", /chartApi\.clampViewport\(\{ total: rows\.length, start: prevStart, count: prevCount \}/.test(pageSrc));
 check("chartApi 命名空间完整导出", Object.keys(chartApi).length >= 24 && typeof chartApi.zoomViewport === "function");
 eq("clampInt 取整并夹取", [clampInt(3.7, 0, 10), clampInt(-5, 0, 10), clampInt(99, 0, 10)], [4, 0, 10]);
+// 滚轮方向与捏合同口径:向上滚 = 放大 = 根数倍数 <1
+check("滚轮向上=放大(与捏合同口径)", /deltaY < 0 \? 1 \/ 1\.15 : 1\.15/.test(pageSrc));
+
+console.log("== F. 组合方向(彻底锁死 pinch ↔ 视口) ==");
+// 历史缺陷:pinchFactor 与 zoomViewport 各自被测都通过,但"组合"后方向相反
+// (手指张开 → 可见根数变多 → 视觉缩小)。这里直接模拟页面里的组合路径。
+{
+  const vpStart = createViewport(TOTAL, {});
+  const spread = zoomViewport(vpStart, pinchFactor(100, 150), 0.5, TOTAL, {});
+  check("张开 100→150:可见根数减少(放大)", spread.count < vpStart.count, "count " + vpStart.count + " → " + spread.count);
+  const squeeze = zoomViewport(vpStart, pinchFactor(150, 100), 0.5, TOTAL, {});
+  check("捏合 150→100:可见根数增加(缩小)", squeeze.count > vpStart.count, "count " + vpStart.count + " → " + squeeze.count);
+  // 连续 50 轮:每次张开必须单调减少/不变,每次捏合必须单调增加/不变;不允许方向翻转
+  let vp = vpStart;
+  let dirErrors = 0;
+  for (let i = 0; i < 50; i += 1) {
+    const out = zoomViewport(vp, pinchFactor(100, 150), 0.5, TOTAL, {});
+    if (out.count > vp.count) dirErrors += 1;
+    vp = out;
+    const back = zoomViewport(vp, pinchFactor(150, 100), 0.5, TOTAL, {});
+    if (back.count < vp.count) dirErrors += 1;
+    vp = back;
+  }
+  eq("50 轮张开/捏合方向零翻转", dirErrors, 0);
+  // 捏合到上限后再张开,仍然放大(边界处不允许反向)
+  const atMax = zoomViewport(vpStart, 0.01, 0.5, TOTAL, {});
+  const afterMax = zoomViewport(atMax, pinchFactor(100, 150), 0.5, TOTAL, {});
+  check("缩到最小时再张开:根数不增加", afterMax.count <= atMax.count, atMax.count + " → " + afterMax.count);
+  const atMin = zoomViewport(vpStart, 999, 0.5, TOTAL, {});
+  const afterMin = zoomViewport(atMin, pinchFactor(150, 100), 0.5, TOTAL, {});
+  check("放到最大时再捏合:根数不减少", afterMin.count >= atMin.count, atMin.count + " → " + afterMin.count);
+  // 锚点保持:以双指中点(0.3 处)为锚,缩放前后该位置的K线索引不漂移
+  const anchorBefore = vpStart.start + 0.3 * vpStart.count;
+  const anchored = zoomViewport(vpStart, pinchFactor(100, 150), 0.3, TOTAL, {});
+  const anchorAfter = anchored.start + 0.3 * anchored.count;
+  check("缩放锚点稳定(±1 根)", Math.abs(anchorAfter - anchorBefore) <= 1.01, anchorBefore + " → " + anchorAfter);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
