@@ -330,6 +330,23 @@ check("V16.2x 成交列表窗口化(默认 50 + 显示更多)+ 隐藏页不渲�
 check("V16.2x Long Task 观测 + 实例计数暴露 + 诊断性能表",
   /entryTypes: \["longtask"\]/.test(pageSrc) && /instances: \{/.test(pageSrc) && /Time to UI/.test(pageSrc) && /最长主线程任务/.test(pageSrc));
 
+// ---- V16.2y:P0 账户审计 / 亏损归因 / 学习完整性 / 完整系统导出 ----
+check("V16.2y 审计模块进入产物(对账/母仓/归因/canonical/账本/脱敏)",
+  /function reconcileAccount\(/.test(bundle) && /function motherPositions\(/.test(bundle) && /function classifyLoss\(/.test(bundle)
+  && /function canonicalSampleId\(/.test(bundle) && /function ledgerFromRecords\(/.test(bundle) && /function redactSensitive\(/.test(bundle));
+check("V16.2y 账户恒等式 + 容差 + 非真实样本剔除口径",
+  /AUDIT_TOLERANCE/.test(bundle) && /ACCOUNT_EQUATION/.test(bundle) && /view_pollution_from_seed/.test(bundle) && /learning_eligible/.test(bundle));
+check("V16.2y ZIP 导出器(零依赖 store 模式 + CRC32 + manifest 完整性)",
+  /function createZip\(/.test(bundle) && /function crc32\(/.test(bundle) && /account_integrity/.test(bundle) && /canonical_ml_sample_count/.test(bundle));
+check("V16.2y 页面:两个导出分家(ML 数据集 / 完整系统 zip)+ 进度不阻塞",
+  /导出 ML 数据集\(CSV\)/.test(pageSrc) && /diagFullExportBtn/.test(pageSrc) && /quant-full-export_/.test(pageSrc)
+  && /QE\.buildFullExport\(\{ sections: sections, audit: audit, versions: versions, yieldFn: yieldToMain/.test(pageSrc));
+check("V16.2y 页面:损益分析(懒加载)+ 复盘生命周期字段 + 启动对账安全模式",
+  /id="pfLossAcc"/.test(pageSrc) && /Entry \/ MFE \/ MAE/.test(pageSrc) && /runAccountingAuditAtBoot/.test(pageSrc)
+  && /entriesPaused = true/.test(pageSrc) && /last_accounting_fault/.test(pageSrc));
+check("V16.2y 导出全局脱敏(§24)",
+  /QE\.redactSensitive/.test(pageSrc) && /redacted_count/.test(bundle));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
 console.log("ARTIFACT CHECKS OK");

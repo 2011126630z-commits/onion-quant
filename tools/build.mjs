@@ -140,7 +140,9 @@ const PAGE_MODULES = [
   "src/ui/watchlist.js",
   "src/ui/devPerf.js",
   "src/ui/viewModels.js",
-  "src/ui/navState.js"
+  "src/ui/navState.js",
+  "src/ui/exportBundle.js",
+  "src/paper/accountAudit.js"
 ];
 
 // 浏览器暴露的引擎 API(页面脚本通过 window.QEngine 调用,避免顶层命名冲突)
@@ -191,6 +193,11 @@ const PAGE_EXPORTS = [
   "createChatSessionStore", "sessionKeyOf", "limitOutboundContext", "compactSummary", "teardownPlan", "uiIdleState", "REQUEST_KINDS",
   "attributionOf", "attributionView", "exitBucketOf", "summarizePositions", "isValidReturnPct", "positionsAsTrades",
   "CAPITAL_EFFICIENCY_VERSION", "CAPITAL_EFFICIENCY_RULES", "capitalEfficiencyOf", "positionEventTrades", "capitalEfficiencyView",
+  // V16.2y:P0 账户审计 / 亏损归因 / 学习完整性 / 完整导出
+  "AUDIT_VERSION", "AUDIT_TOLERANCE", "FEATURE_SCHEMA_VERSION", "classifyOrigin", "reconcileAccount", "motherPositions",
+  "classifyLoss", "lossAttribution", "duplicateScan", "canonicalSampleId", "learningIntegrity", "ledgerFromRecords",
+  "redactSensitive", "buildLossReport",
+  "EXPORT_VERSION", "crc32", "createZip", "buildFullExport",
   "createPaperRuntime", "buildQuotes", "runtimeStatus", "runtimeInstanceCount", "getRuntime", "RUNTIME_STATES", "createHistoryStore",
   "planRetention", "applyRetention", "trimSyncQueue", "coreHistoryIntact", "retentionSummary", "RETENTION_POLICY",
   "openFuturesPosition", "closeFuturesPosition", "liquidationPriceOf", "isLiquidated", "futuresUnrealized",

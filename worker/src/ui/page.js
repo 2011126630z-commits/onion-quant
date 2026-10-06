@@ -1434,8 +1434,9 @@ export const page = String.raw`<!doctype html>
           <div class="v-note" id="dsPreviewNote">尚未生成数据集。</div>
           <div class="v-actions" style="margin-top:8px">
             <button id="dsPreviewBtn" class="sec" type="button">预览</button>
-            <button id="dsCsvBtn" class="primary-btn" type="button">导出 CSV</button>
-            <button id="dsJsonBtn" class="sec" type="button">导出 JSON</button>
+        <button id="dsCsvBtn" class="primary-btn" type="button">导出 ML 数据集(CSV)</button>
+        <button id="dsJsonBtn" class="sec" type="button">导出 ML 数据集(JSON)</button>
+        <div class="v-note" style="margin-top:6px">此导出 = ML 样本集(信号/特征/结果/标签),不含账户与账本。完整系统数据(账户/持仓/订单/成交/账本/日志)在 我的 → 系统诊断 导出 zip。</div>
           </div>
         </div>
         <div class="card">
@@ -1585,8 +1586,9 @@ export const page = String.raw`<!doctype html>
           <div class="kd-actions">
             <button id="diagCopyBtn" class="sec" type="button">复制错误信息</button>
             <button id="diagExportBtn" class="primary-btn" type="button">导出诊断包</button>
+            <button id="diagFullExportBtn" class="sec" type="button">导出完整系统数据(zip)</button>
           </div>
-          <div class="kd-note" id="diagActionNote" style="margin-top:6px">导出内容来自本机黑匣子,内部已脱敏。</div>
+          <div class="kd-note" id="diagActionNote" style="margin-top:6px">导出内容来自本机黑匣子,内部已脱敏。完整系统数据导出期间界面仍可操作。</div>
         </div>
         <div class="card" id="diagErrorsCard" style="margin-bottom:10px">
           <h2 style="margin-bottom:6px">错误去重列表</h2>
@@ -1719,6 +1721,10 @@ export const page = String.raw`<!doctype html>
         <div id="pfTrades"></div>
         <div class="sec-title">统计</div>
         <div id="pfMetrics" class="pf-metrics"></div>
+        <details class="pf-adv" id="pfLossAcc">
+          <summary>损益分析 · 亏损归因</summary>
+          <div class="pf-adv-body"><div id="pfLossBox"></div></div>
+        </details>
         <details class="pf-adv">
           <summary>详细统计 · 技术信息</summary>
           <div class="pf-adv-body"><div id="pfStatsBox"></div></div>
@@ -3921,8 +3927,192 @@ export const page = String.raw`<!doctype html>
         }
       }
 
-      function openDataset() {
-        if (!QE) {
+      // ================= V16.2y:P0 账户审计 / 完整系统导出(工单 §16-§24) =================
+      function downloadBytes(bytes, filename, mime) {
+        try {
+          const blob = new Blob([bytes], { type: mime || "application/octet-stream" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = filename;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 8000);
+          return true;
+        } catch (error) { diagLog("download-bytes", error); return false; }
+      }
+      async function collectAuditInputs(options) {
+        const o = options || {};
+        const eng = await getPaperEngine();
+        const snapshot = eng.snapshot();
+        const inputs = {
+          account: eng.getAccount(), wallets: snapshot.wallets || [], positions: eng.getPositions(),
+          trades: eng.getTrades(), orders: (typeof eng.getOrders === "function" ? eng.getOrders() : []),
+          engineState: (eng.engine && eng.engine.state) || {}
+        };
+        if (o.withHistory) {
+          const store = await historyStore();
+          await yieldToMain();
+          inputs.signals = await store.signals.all(20000);       // 审计需全量信号(含 seed)以正确剔除与统计
+          await yieldToMain();
+          inputs.learningSamples = await store.generic.all("learning_samples");
+          inputs.outcomes = await store.outcomes.all(20000);
+          await yieldToMain();
+        }
+        return inputs;
+      }
+      async function renderPfLoss() {
+        const box = $("pfLossBox");
+        if (!box) return;
+        box.replaceChildren(vEl("div", "v-note", "正在计算..."));
+        try {
+          const inputs = await collectAuditInputs({});
+          const audit = QE.buildLossReport(inputs);
+          viewState.lastAudit = { at: Date.now(), audit: audit };
+          const R = audit.reconciliation;
+          const E = R.equity_reconciliation;
+          const T = audit.attribution.totals;
+          const P = audit.attribution.profit_to_loss;
+          box.replaceChildren();
+          const grid = vEl("div", "rv-grid");
+          const row = (k, v, cls) => { grid.appendChild(vEl("span", "k", k)); const el = vEl("span", null, v); if (cls) el.className = cls; grid.appendChild(el); };
+          const usd = (v) => (v > 0 ? "+" : "") + QE.num(v, 0).toFixed(4) + " U";
+          const plCls = (v) => (v > 0 ? "green" : v < 0 ? "red" : "muted");
+          box.appendChild(vEl("div", "sec-title", "账户对账(权威口径)"));
+          row("当前权益", E.current_equity.toFixed(4) + " U");
+          row("净亏盈", usd(E.net_change), plCls(E.net_change));
+          row("毛盈亏(Gross)", usd(E.realized_gross_pnl), plCls(E.realized_gross_pnl));
+          row("手续费", E.fees.toFixed(4) + " U", E.fees > 0 ? "red" : "");
+          row("资金费", E.funding.toFixed(4) + " U");
+          row("滑点(估)", E.slippage_estimated.toFixed(4) + " U");
+          row("对账", R.mismatch ? ("不一致(P0):差 " + R.diffs.account_equation + " U") : "恒等式成立", R.mismatch ? "red" : "green");
+          row("成交汇总差", (R.diffs.trades_vs_account >= 0 ? "+" : "") + R.diffs.trades_vs_account.toFixed(4) + " U(记账口径差)", Math.abs(R.diffs.trades_vs_account) > 0.05 ? "red" : "muted");
+          if (Math.abs(R.diffs.view_pollution_from_seed) > 1e-9) row("非真实样本污染", usd(R.diffs.view_pollution_from_seed) + "(已从以上口径剔除)", "muted");
+          box.appendChild(grid);
+          const grid2 = vEl("div", "rv-grid");
+          const row2 = (k, v, cls) => { grid2.appendChild(vEl("span", "k", k)); const el = vEl("span", null, v); if (cls) el.className = cls; grid2.appendChild(el); };
+          box.appendChild(vEl("div", "sec-title", "交易归因(" + T.positions + " 个母仓 · 盈 " + T.winners + " / 亏 " + T.losers + ")"));
+          row2("毛盈亏 / 净盈亏", usd(T.gross) + " / " + usd(T.net), plCls(T.net));
+          row2("手续费 / Fee Drag", T.fee.toFixed(4) + " U · " + (T.fee_drag_ratio == null ? "--" : T.fee_drag_ratio + "%"), "red");
+          row2("最大盈利 / 最大亏损", usd(T.max_win) + " / " + usd(T.max_loss), "muted");
+          row2("赚了没跑(Profit→Loss)", P.count + " 次 · 错过 " + P.total_missed_profit.toFixed(4) + " U · 最终 " + usd(P.total_final_loss), P.count > 0 ? "red" : "green");
+          const worst = audit.attribution.by_loss_reason.length ? audit.attribution.by_loss_reason[0] : null;
+          row2("最大亏损原因", worst ? (worst.label + " ×" + worst.count + " · " + usd(worst.net)) : "--", "red");
+          box.appendChild(grid2);
+          const buckets = audit.attribution.size_buckets.filter((b) => b.count > 0);
+          if (buckets.length) {
+            box.appendChild(vEl("div", "sec-title", "仓位规模(蚂蚁仓检查)"));
+            for (const b of buckets) {
+              const line = vEl("div", "v-note", b.bucket + " · " + b.count + " 单 · 净 " + usd(b.net) + " · 费 " + b.fee.toFixed(4) + " U · 费拖 " + (b.fee_drag == null ? "--" : b.fee_drag + "%"));
+              box.appendChild(line);
+            }
+          }
+          if (audit.attribution.top_losers.length) {
+            box.appendChild(vEl("div", "sec-title", "Top 亏损母仓"));
+            for (const r of audit.attribution.top_losers) {
+              box.appendChild(vEl("div", "v-note", r.symbol.replace("USDT", "/USDT") + " · " + (r.strategy_mode === "long" ? "长线" : "短线") + " · " + usd(r.net_pnl) + " · MFE " + r.mfe.toFixed(4) + " · 退出 " + (r.exit_reason || "--") + " · " + ((r.labels || []).join(",") || "--")));
+            }
+          }
+          box.appendChild(vEl("div", "v-note", "说明:标签来自真实记录字段(退出原因/MFE/费用比例等),非现场推断;点击上方成交记录任意一笔可看复盘。"));
+        } catch (error) {
+          box.replaceChildren(vEl("div", "v-note", "损益分析读取失败:" + String((error && error.message) || error).slice(0, 120)));
+        }
+      }
+      async function exportFullSystem() {
+        const btn = $("diagFullExportBtn");
+        if (btn && btn.disabled) return;
+        const note = $("diagActionNote");
+        const restore = btn ? btn.textContent : "";
+        try {
+          if (btn) { btn.disabled = true; btn.textContent = "导出中 0%"; }
+          const progress = (pct) => { if (btn) btn.textContent = "导出中 " + pct + "%"; };
+          const inputs = await collectAuditInputs({ withHistory: true });
+          const eng = await getPaperEngine();
+          const audit = QE.buildLossReport(inputs);
+          const ledger = QE.ledgerFromRecords(inputs);
+          const store = await historyStore();
+          const readAll = async (table, limit) => { try { const rows = await store.generic.all(table); await yieldToMain(); return limit ? rows.slice(-limit) : rows; } catch (error) { return []; } };
+          const sections = [];
+          const push = (name, data, count) => sections.push({ name: name, data: data, count: count });
+          push("account_snapshot.json", audit.reconciliation, null);
+          push("account_history.json", await readAll("paper_equity_snapshots", 5000));
+          push("paper_positions.json", inputs.positions);
+          push("paper_orders.json", await readAll("paper_orders", 5000));
+          push("paper_fills.json", inputs.trades);
+          push("paper_ledger.json", { closure: ledger.closure, events: ledger.events });
+          push("capital_reservations.json", (() => { try { return { reserve_book: eng.getReserveBook ? eng.getReserveBook() : null, summary: eng.reserveSummary ? eng.reserveSummary() : null }; } catch (error) { return { note: "unavailable" }; } })());
+          push("signals.json", inputs.signals || []);
+          push("feature_dataset.json", await (async () => { try { return { note: "ML 特征数据集(与 学习页导出 同源)", dataset: QE.buildDataset(await ensureRecordsLoaded(), {}) }; } catch (error) { return { note: "dataset_unavailable" }; } })());
+          push("decision_journal.json", (() => { try { return (eng.journal ? eng.journal({ limit: 2000 }) : []) || []; } catch (error) { return []; } })());
+          push("risk_events.json", {
+            integrity: (() => { try { return eng.getIntegrity(); } catch (error) { return null; } })(),
+            skipped_shadows: (inputs.engineState && inputs.engineState.skipped_shadows) || [],
+            hwm: (inputs.engineState && inputs.engineState.hwm) || null,
+            profit_pool: (inputs.engineState && inputs.engineState.profit_pool) || null
+          });
+          push("learning_state.json", audit.learning);
+          push("champion_challenger.json", { ui: { source: mlUiState.source, version: mlUiState.version, last_reason: mlUiState.lastReason }, runtime: (() => { try { return mlRuntime.status(); } catch (error) { return null; } })() });
+          push("factor_status.json", { note: "因子影子状态随引擎运行累积;此处导出注册表版本", factor_registry_version: (typeof QE.FACTOR_REGISTRY !== "undefined") ? "present" : "unknown" });
+          push("universe_state.json", { local_scan: viewState.universeScan || null, runtime_universe: (() => { try { const rt = readRuntimeStatus(); return (rt && rt.universe) || null; } catch (error) { return null; } })() });
+          push("scanner_history.json", (viewState.universeScan && viewState.universeScan.scan) || []);
+          push("runtime_health.json", { runtime: (() => { try { return readRuntimeStatus(); } catch (error) { return null; } })(), ui: (() => { try { return window.__quantUI.state(); } catch (error) { return null; } })() });
+          push("boot_diagnostics.json", { stage: BOOT.stage, ui_ready: Boolean(BOOT.ui_ready), timings: BOOT.timings || {}, marks: BOOT.marks || {}, long_tasks: (BOOT.longTasks || []).slice(-100), errors: BOOT.errors || [] });
+          push("fault_logs.json", { boot_errors: BOOT.errors || [], local_diag: (window.__quantDiag || []).slice(-200), last_accounting_fault: lsGetJson("last_accounting_fault", null) });
+          push("settings_snapshot.json", { quantSettings: lsGetJson("quantSettings", null), ntfSettings: lsGetJson("ntfSettings", null), watchSymbols: lsGetJson("watchSymbols", null), autoStart: lsGetRaw("autoStart") });
+          push("account_audit.json", {
+            reconciliation: audit.reconciliation, totals: audit.attribution.totals, profit_to_loss: audit.attribution.profit_to_loss,
+            duplicates: audit.duplicates, learning_totals: audit.learning.totals, top_losers: audit.attribution.top_losers,
+            by_loss_reason: audit.attribution.by_loss_reason, by_exit_reason: audit.attribution.by_exit_reason,
+            by_mode: audit.attribution.by_mode, by_symbol: audit.attribution.by_symbol, size_buckets: audit.attribution.size_buckets,
+            ledger_closure: audit.ledger_closure
+          });
+          // V16.2y §24:脱敏只扫"可能含凭据"的段 —— 引擎数值记录(>200 行的大数组:成交/订单/信号/历史)
+          // 不含任何凭据字段(引擎从不存储 Key/Token),全量深拷贝遍历 15k 记录会产生 ~500ms 单任务(§23 违反)
+          let redactedTotal = 0;
+          const redactedKeys = [];
+          for (const s of sections) {
+            if (Array.isArray(s.data) && s.data.length > 200) continue;
+            const r = QE.redactSensitive(s.data);
+            s.data = r.value;
+            redactedTotal += r.redacted_count;
+            for (const k of r.redacted_keys) if (redactedKeys.length < 20) redactedKeys.push(s.name + k);
+          }
+          const red = { redacted_count: redactedTotal, redacted_keys: redactedKeys };
+          const versions = {
+            app_version: QE.ENGINE_VERSION, schema_version: QE.SCHEMA_VERSION, feature_version: QE.FEATURE_VERSION,
+            runtime_version: QE.ML_RUNTIME_VERSION,
+            model_version: (() => { try { return mlRuntime.currentVersion(); } catch (error) { return null; } })(),
+            audit_version: QE.AUDIT_VERSION, export_version: QE.EXPORT_VERSION
+          };
+          const out = await QE.buildFullExport({ sections: sections, audit: audit, versions: versions, yieldFn: yieldToMain, progress: progress, redaction: red, now: Date.now() });
+          const day = new Date();
+          const fn = "quant-full-export_" + day.getFullYear() + String(day.getMonth() + 1).padStart(2, "0") + String(day.getDate()).padStart(2, "0") + ".zip";
+          const saved = downloadBytes(out.zip, fn, "application/zip");
+          if (note) note.textContent = "已生成 " + fn + "(" + Math.round(out.byte_length / 1024) + " KB)· 完整性 " + out.manifest.account_integrity + " · 文件 " + out.files.length + " 个" + (saved ? "" : "(下载通道不可用,仅计算)") + (red.redacted_count ? " · 脱敏 " + red.redacted_count + " 字段" : "");
+          if (out.manifest.account_integrity !== "PASS") toast("导出完成,但账户完整性 = FAILED(见 manifest)", "error");
+          return out.manifest;
+        } catch (error) {
+          diagLog("full-export", error);
+          if (note) note.textContent = "完整导出失败:" + String((error && error.message) || error).slice(0, 120);
+          return null;
+        } finally { if (btn) { btn.disabled = false; btn.textContent = restore; } }
+      }
+      // 启动即对账(工单 §2/§29):不一致 → PAUSE_NEW_ENTRIES + fault_id(Accounting Safe Mode);历史一律保留
+      async function runAccountingAuditAtBoot() {
+        try {
+          const inputs = await collectAuditInputs({});
+          const recon = QE.reconcileAccount(inputs);
+          BOOT.account_audit = { ok: recon.ok, mismatch: recon.mismatch, diffs: recon.diffs, checks: recon.checks, at: Date.now() };
+          if (recon.mismatch) {
+            const eng = await getPaperEngine();
+            try { if (eng.engine) { eng.engine.entriesPaused = true; eng.engine.entriesPausedReason = "ACCOUNTING_MISMATCH"; } } catch (error2) { /* 记录为主 */ }
+            const fault = { fault_id: "acc_" + Date.now().toString(36), kind: "ACCOUNTING_MISMATCH", at: Date.now(), diffs: recon.diffs, checks: recon.checks };
+            lsSetJson("last_accounting_fault", fault);
+            diagLog("account-audit", new Error("ACCOUNTING_MISMATCH " + JSON.stringify(recon.diffs)));
+            try { toast("账户对账不一致:已暂停新开仓(历史保留)", "error"); } catch (error2) { /* ignore */ }
+            bootFail("account_audit_mismatch", new Error("ACCOUNTING_MISMATCH"));
+          }
+        } catch (error) { bootFail("account_audit", error); }
+      }
+      function openDataset() {        if (!QE) {
           $("dsPreviewNote").textContent = "导出模块未加载,请刷新页面重试。";
           return;
         }
@@ -4420,6 +4610,8 @@ export const page = String.raw`<!doctype html>
         marketScroll: 0,
         // V16.2x 工单 §7:模拟页成交列表窗口(默认 50,点"显示更多"每次 +50)
         pfTradesShown: 50,
+        pfLossLoaded: false,
+        lastAudit: null,
         // V16.2s:市场页分段状态(市场/自选)——进详情再返回仍在原段;两段滚动位置各自保存
         mkSeg: "market",
         mkScroll: { market: 0, watch: 0 },
@@ -7281,6 +7473,17 @@ export const page = String.raw`<!doctype html>
         row("费用", QE.num(fees, 0).toFixed(4) + " USDT");
         row("持有时间", holdMs == null ? "--" : QE.fmtHold(holdMs));
         row("杠杆来源", levSource + (lev == null ? "" : " · " + lev + "x"));
+        // V16.2y 工单 §27:复盘补全生命周期关键字段(全部来自真实记录)
+        {
+          const gMfe = Math.max(...group.map((t) => QE.num(t && (t.mfe != null ? t.mfe : t.max_profit_seen), 0)), 0);
+          const gMae = Math.min(...group.map((t) => QE.num(t && (t.mae != null ? t.mae : t.max_loss_seen), 0)), 0);
+          const partialN = group.filter(isPartialTrade).length;
+          row("Entry / MFE / MAE", (first.entry_price == null ? "--" : QE.num(first.entry_price).toFixed(6)) + " · +" + gMfe.toFixed(4) + " / " + gMae.toFixed(4));
+          row("减仓次数 / 退出", partialN + " 次 · " + (whyExit.length ? whyExit[0] : "--"));
+          const trace = [first.signal_id ? "sig " + String(first.signal_id).slice(0, 26) : null, first.strategy_intent_id ? "intent " + String(first.strategy_intent_id).slice(0, 22) : null, first.decision_id ? "dec " + String(first.decision_id).slice(0, 22) : null].filter(Boolean);
+          row("链路(信号/意图/决策)", trace.length ? trace.join(" · ") : "--");
+          row("版本(引擎/模型/边际)", String(first.engine_version || "--") + " · " + String(first.model_version || "--") + (first.entry_net_edge_pct == null ? "" : " · 净边际 " + QE.num(first.entry_net_edge_pct).toFixed(3) + "%"));
+        }
         box.appendChild(grid);
         if (!group.length) box.appendChild(vEl("div", "v-note", "没有找到该仓位的成交明细(可能已过保留期)。"));
         // 该 symbol 的决策日志(虚拟化,条目多时只渲染视口附近)
@@ -10195,6 +10398,13 @@ export const page = String.raw`<!doctype html>
         $("pfPauseEntriesBtn").addEventListener("click", () => { void togglePauseEntries(); });
         $("pfEmergencyBtn").addEventListener("click", () => { void emergencyCloseAll(); });
         $("pfExportBtn").addEventListener("click", () => exportPaperRecords("csv"));
+        // V16.2y:损益分析(懒加载,首次展开才计算)
+        {
+          const lossAcc = $("pfLossAcc");
+          if (lossAcc) lossAcc.addEventListener("toggle", () => {
+            if (lossAcc.open && !viewState.pfLossLoaded) { viewState.pfLossLoaded = true; void renderPfLoss(); }
+          });
+        }
         $("resetPaperBtn").addEventListener("click", () => { void resetPaperAccount(); });
         // V16.2s 系统状态:统一 Accordion —— 点开(惰性渲染真实数据),再点立即收起(修复"展开后不能收回")
         bindAccordion("sysAcc", "openSysStatus", () => { void safeRender("sys:status", renderSysStatus, renderSysStatus); });
@@ -10207,6 +10417,7 @@ export const page = String.raw`<!doctype html>
         $("diagRefreshBtn").addEventListener("click", () => { void renderDiag(); });
         $("diagCopyBtn").addEventListener("click", () => { void diagCopy(); });
         $("diagExportBtn").addEventListener("click", () => { void diagExportFile(); });
+        $("diagFullExportBtn").addEventListener("click", () => { void exportFullSystem(); });
         initDevOverlay();
         for (const item of NTF_TYPES) {
           const sw = $(item.key);
@@ -10244,6 +10455,8 @@ export const page = String.raw`<!doctype html>
         bootBegin("BOOT_ACCOUNT_SUMMARY_READY");
         try { await renderHome(); bootStage("account_ready"); } catch (error) { bootFail("renderHome_tail", error); }
         bootEnd("BOOT_ACCOUNT_SUMMARY_READY");
+        // V16.2y 工单 §2/§29:启动即账户对账(不阻塞;不一致 → 暂停新开仓 + fault_id;历史保留)
+        try { void runAccountingAuditAtBoot(); } catch (error) { bootFail("account_audit_sync", error); }
         // V16.2w P0:UI_READY = 本地账户已 hydrate + 导航可用(不依赖任何 Market API) —— 最先达成
         bootStage("ui_ready");
         BOOT.ui_ready = true;
