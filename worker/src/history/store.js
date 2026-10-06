@@ -265,7 +265,8 @@ export async function createHistoryStore(options) {
       get: (table, key) => backend.get(table, key),
       del: (table, key) => backend.del(table, key),
       delMany: (table, keys) => backend.delMany(table, keys),
-      clear: (table) => backend.clear(table)
+      clear: (table) => backend.clear(table),
+      count: (table) => backend.count(table)
     },
     async meta(key, value) {
       if (value === undefined) {

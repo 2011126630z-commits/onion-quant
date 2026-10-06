@@ -14,9 +14,9 @@
 
 ```
 Latest APK:  apk/app-latest.apk   (Releases 附件同名 app-latest.apk)
-Version:     v16.2w(16.2.0-paper)
-Size:        4.85 MB (5,086,905 bytes)
-SHA256:      acb391c6e4123edd9d639b9e256eac5f13d011570f5231e11b666af4c36ada5e
+Version:     v16.2x(16.2.0-paper)
+Size:        4.85 MB (5,088,105 bytes)
+SHA256:      5d08d67109c77c6a91bbc53eca03262b4cbbc6e5fc122b44517dc0127c68d6ae
 ```
 
 - **PAPER ONLY**:无真实 API Key、无真实下单;应用内所有"开仓/平仓"都发生在本地模拟账户。
@@ -39,7 +39,7 @@ dev-server.mjs        本地开发服务器(node dev-server.mjs → http://local
 
 ```bash
 node tools/build.mjs          # 生成 worker/index.js 与页面内联脚本(会做语法校验)
-node tools/run-tests.mjs      # 全量测试(当前 45 套件 / 4176 断言 / 0 失败)
+node tools/run-tests.mjs      # 全量测试(当前 45 套件 / 4214 断言 / 0 失败)
 node tools/build-android.mjs && npx cap sync android
 cd android && gradlew.bat assembleDebug   # APK 输出在 android/app/build/outputs/apk/debug/
 ```
@@ -50,6 +50,7 @@ APK 发布流程(本仓库约定):`构建 → 测试通过 → 复制到 apk/app
 
 | 版本 | 要点 |
 |---|---|
+| v16.2x | 启动响应性 P0:根因=引擎 integrityRepair 对 2000 学习样本逐条 trades.find 的 680 万次比较(300ms/轮)+ 启动即全量读库 4000 行 + retention 全表计数 + setTimeout 让步在后台 WebView 被节流。修复=Map 索引+MessageChannel 让步+Phase A/B/C 分层+DB 懒加载+空闲延后(模型/学习/清理)+成交 50 条窗口+实例审计+诊断启动性能表。桌面实测:最长主线程任务 276-309ms → 0、Time to UI 13-49ms、首点 2-12ms |
 | v16.2w | P0 真机假死根因修复:模块级未守卫存储读取(残留非法 JSON / 存储被拒)会整段杀死主脚本 → 首页全 `--`、底部导航点击无反应、永不 hydrate。修复=存储读取全守卫+自愈、BOOT_SEQUENCE 阶段插桩与 BOOT_FAILED 记录、主脚本死亡时兜底导航与启动异常横幅、首页三态(加载中/等待后台数据/读取失败)、诊断页 Boot Status |
 | v16.2v | 动态币种池(40 扫描/31 候选/深度 ≤10,真实山寨进入)、市场扫描面板与宇宙健康诊断、资金与损失分离(蚂蚁仓根因)、费用吃掉边际/低置信门槛、母仓资金效率 |
 | v16.2u | P0 审计首轮:全链路溯源(signal_id/strategy_intent_id/decision_id)、组合暴露预检真接线(EXPOSURE_CAP)、Runtime 统一 7 态与 Start 幂等(连点 10 次只 1 实例/1 Loop) |

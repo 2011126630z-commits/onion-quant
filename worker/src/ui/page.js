@@ -84,6 +84,7 @@ export const page = String.raw`<!doctype html>
         setTimeout(function () {
           try { if (!window.__quantBoot || !window.__quantBoot.ui_ready) window.__quantShowBootBanner("boot_timeout"); } catch (e) { /* 忽略 */ }
         }, 8000);
+        try { BOOT.head_ready_at = Date.now(); } catch (e) { /* 忽略 */ }
       })();
     </script>
     <style>
@@ -1909,6 +1910,76 @@ export const page = String.raw`<!doctype html>
         }
       }
       function lsSetJson(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); return true; } catch (error) { bootFail("storage_write:" + key, error); return false; } }
+      // ===== V16.2x《STARTUP RESPONSIVENESS》:启动阶段计时 + Long Task 观测 + 主线程让步 =====
+      BOOT.timings = BOOT.timings || {};
+      BOOT.longTasks = BOOT.longTasks || [];
+      BOOT.stageLog = BOOT.stageLog || [];
+      const _perfNow = () => ((typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now());
+      function bootBegin(name) { try { BOOT.stageLog.push({ name: name, kind: "begin", at: Date.now() }); (BOOT._open = BOOT._open || {})[name] = { t: _perfNow(), wall: Date.now() }; } catch (error) { /* 计时失败不影响启动 */ } }
+      function bootEnd(name) {
+        try {
+          const open = (BOOT._open || {})[name];
+          if (!open) return null;
+          delete BOOT._open[name];
+          const rec = { stage: name, start_wall: open.wall, end_wall: Date.now(), durationMs: Math.round((_perfNow() - open.t) * 10) / 10 };
+          const flags = [];
+          if (rec.durationMs > 1000) flags.push(">1000ms"); else if (rec.durationMs > 500) flags.push(">500ms"); else if (rec.durationMs > 100) flags.push(">100ms"); else if (rec.durationMs > 50) flags.push(">50ms");
+          const inWindow = (BOOT.longTasks || []).filter((lt) => lt.at >= open.wall - 5 && lt.at <= Date.now() + 5);
+          rec.long_tasks = inWindow.map((lt) => lt.durationMs);
+          rec.main_thread_long_task = inWindow.some((d) => d >= 50);
+          if (rec.main_thread_long_task) flags.push("MAIN_THREAD_LONG_TASK");
+          if (flags.length) rec.flags = flags;
+          BOOT.timings[name] = rec;
+          BOOT.stageLog.push({ name: name, kind: "end", at: Date.now(), durationMs: rec.durationMs, flags: flags });
+          return rec;
+        } catch (error) { return null; }
+      }
+      function bootMark(name) { try { BOOT.marks = BOOT.marks || {}; if (BOOT.marks[name]) return; BOOT.marks[name] = Date.now(); BOOT.stageLog.push({ name: name, kind: "mark", at: BOOT.marks[name] }); } catch (error) { /* 忽略 */ } }
+      try {
+        if (typeof PerformanceObserver === "function") {
+          const __ltObserver = new PerformanceObserver((list) => {
+            try {
+              const hasPerf = (typeof performance !== "undefined") && performance && (typeof performance.timeOrigin === "number");
+              for (const e of list.getEntries()) {
+                BOOT.longTasks.push({ at: Math.round(e.startTime + (hasPerf ? performance.timeOrigin : Date.now())), durationMs: Math.round(e.duration), stage: BOOT.stage, during_boot: !BOOT.ui_ready });
+                if (BOOT.longTasks.length > 300) BOOT.longTasks.shift();
+              }
+            } catch (error) { /* 观测失败不影响 */ }
+          });
+          __ltObserver.observe({ entryTypes: ["longtask"] });
+        }
+      } catch (error) { /* 环境不支持 longtask 则忽略 */ }
+      function yieldToMain() {
+        return new Promise((resolve) => {
+          // 优先 scheduler.yield(Chrome 129+/新一代 WebView);回退 MessageChannel(不受后台定时器节流);最后 setTimeout
+          try { if (typeof scheduler !== "undefined" && scheduler && typeof scheduler.yield === "function") { scheduler.yield().then(resolve, resolve); return; } } catch (error) { /* 回退 */ }
+          try {
+            if (typeof MessageChannel === "function") {
+              const ch = new MessageChannel();
+              ch.port1.onmessage = () => { try { ch.port1.close(); } catch (error2) { /* 忽略 */ } resolve(); };
+              ch.port2.postMessage(0);
+              return;
+            }
+          } catch (error3) { /* 回退 setTimeout */ }
+          setTimeout(resolve, 0);
+        });
+      }
+      // V16.2x Phase C:低优先级任务推迟到浏览器空闲(或超时兜底)—— 模型/学习/研究/存量清理绝不与首屏抢主线程
+      function scheduleIdle(name, fn) {
+        const run = () => { try { void fn(); } catch (error) { bootFail("idle:" + name, error); } };
+        try {
+          if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(() => run(), { timeout: 5000 });
+          else setTimeout(run, 1500);
+        } catch (error) { setTimeout(run, 1500); }
+      }
+      // BOOT_HTML_READY:HTML 解析 + head 护盾就绪(含 head 内联脚本)
+      try {
+        const htmlEnd = BOOT.head_ready_at || Date.now();
+        const htmlRec = { stage: "BOOT_HTML_READY", start_wall: BOOT.started_at, end_wall: htmlEnd, durationMs: Math.round((htmlEnd - BOOT.started_at) * 10) / 10 };
+        if (htmlRec.durationMs > 1000) htmlRec.flags = [">1000ms"]; else if (htmlRec.durationMs > 500) htmlRec.flags = [">500ms"]; else if (htmlRec.durationMs > 100) htmlRec.flags = [">100ms"]; else if (htmlRec.durationMs > 50) htmlRec.flags = [">50ms"];
+        BOOT.timings["BOOT_HTML_READY"] = htmlRec;
+      } catch (error) { /* 忽略 */ }
+      bootBegin("BOOT_DB_READY");   // 完整历史读取(基线:启动即读;V16.2x 改为懒加载后按需结束)
       bootStage("storage_ready");
       const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT"];
       const periods = [
@@ -2885,6 +2956,7 @@ export const page = String.raw`<!doctype html>
       const vstate = {
         store: null,
         records: [],
+        recordsLoaded: false,   // V16.2x:全量历史是否已惰性加载(启动不读全库)
         horizon: "1h",
         regime: "全部",
         source: "live",
@@ -2961,7 +3033,9 @@ export const page = String.raw`<!doctype html>
       async function historyStore() {
         if (!vstate.store) {
           if (!QE || !QE.createHistoryStore) throw new Error("QEngine 未加载");
+          bootBegin("BOOT_STORE_MINIMAL_READY");
           vstate.store = await QE.createHistoryStore();
+          bootEnd("BOOT_STORE_MINIMAL_READY");
         }
         return vstate.store;
       }
@@ -3022,8 +3096,30 @@ export const page = String.raw`<!doctype html>
         const store = await historyStore();
         const joined = await store.joined({ limit: 4000 });
         vstate.records = QE.usableRecords(joined);
+        vstate.recordsLoaded = true;
         vstate.dirty = false;
         return vstate.records;
+      }
+
+      // V16.2x 工单 §6:启动不读全库 —— 徽标用 count(不拉行),明细在打开相关页面时惰性加载
+      async function updateBadgeCounts() {
+        try {
+          const store = await historyStore();
+          const total = (typeof store.signals.count === "function") ? await store.signals.count() : null;
+          if (total == null) return;
+          $("validationBadge").textContent = total ? "已存 " + total : "暂无";
+          $("backtestBadge").textContent = "—";
+          $("dsBadge").textContent = total ? total + " 条" : "暂无";
+          $("wfBadge").textContent = "—";
+        } catch (error) { /* 徽标失败不影响启动 */ }
+      }
+      async function ensureRecordsLoaded() {
+        if (vstate.recordsLoaded) return vstate.records;
+        bootBegin("BOOT_DB_READY");
+        const recs = await loadRecords();
+        bootEnd("BOOT_DB_READY");
+        updateBadge();
+        return recs;
       }
 
       function updateBadge() {
@@ -3273,7 +3369,10 @@ export const page = String.raw`<!doctype html>
         }
         setActivePage("validation");
         buildChips();
-        renderValidation();
+        // V16.2x 工单 §6:明细惰性加载 —— 打开该页才读全量历史(启动不读全库)
+        const st = $("vStatus");
+        if (!vstate.recordsLoaded && st) st.textContent = "正在读取本地历史数据...";
+        void ensureRecordsLoaded().then(() => renderValidation()).catch((error) => { if (st) st.textContent = "本地历史读取失败:" + String((error && error.message) || error); });
         void refreshValidation({ force: false });
       }
 
@@ -4294,12 +4393,11 @@ export const page = String.raw`<!doctype html>
         });
         try {
           await historyStore();
-          $("vStatus").textContent = "正在读取本地历史数据...";
-          await loadRecords();
-          updateBadge();
-          $("vStatus").textContent = vstate.records.length
-            ? "已保存 " + vstate.records.length + " 条真实样本"
-            : "暂无历史样本。完成真实市场分析后,这里会开始积累验证数据。";
+          // V16.2x 工单 §6/§13:启动只做"最小就绪"(打开库 + count),不读全量历史;明细在打开相关页面时惰性读取
+          bootEnd("BOOT_DB_READY");
+          if (BOOT.timings.BOOT_DB_READY) BOOT.timings.BOOT_DB_READY.deferred = true;
+          void updateBadgeCounts();
+          $("vStatus").textContent = "本地历史已就绪(打开该页时加载明细)";
           scheduleResolve(4000);
           setInterval(() => {
             if (!document.hidden) scheduleResolve(1000);
@@ -4320,6 +4418,8 @@ export const page = String.raw`<!doctype html>
         detailSymbol: state.symbol,
         detailInterval: state.interval,
         marketScroll: 0,
+        // V16.2x 工单 §7:模拟页成交列表窗口(默认 50,点"显示更多"每次 +50)
+        pfTradesShown: 50,
         // V16.2s:市场页分段状态(市场/自选)——进详情再返回仍在原段;两段滚动位置各自保存
         mkSeg: "market",
         mkScroll: { market: 0, watch: 0 },
@@ -4503,7 +4603,8 @@ export const page = String.raw`<!doctype html>
           get: (table, key) => store.generic.get(table, key),
           all: (table) => store.generic.all(table),
           put: (table, row) => store.generic.put(table, row),
-          del: (table, key) => store.generic.del(table, key)
+          del: (table, key) => store.generic.del(table, key),
+          count: (table) => (store.generic && typeof store.generic.count === "function" ? store.generic.count(table) : store.generic.all(table).then((rows) => rows.length))
         };
       }
 
@@ -4652,6 +4753,7 @@ export const page = String.raw`<!doctype html>
       }
 
       async function getPaperEngine() {
+        bootMark("engine_begin");
         // 后台运行时已在跑 → 只读 Viewer + 命令邮箱(不创建引擎,避免第二个实例)
         if (nativeRuntimeActive()) return getNativeViewer();
         if (!paperApi) {
@@ -4707,7 +4809,9 @@ export const page = String.raw`<!doctype html>
         // V16.2w P0:首页渲染整体兜底 —— 读取失败必须显示"读取失败(可诊断)",绝不静默停在 -- 或空
         try {
         const eng = await getPaperEngine();
+        bootMark("rh_engine_done");
         const snapshot = eng.snapshot();
+        bootMark("rh_snapshot_done");
         let learning = { note: "系统正在积累数据" };
         try {
           const store = await historyStore();
@@ -4717,9 +4821,11 @@ export const page = String.raw`<!doctype html>
         } catch (error) { /* 学习信息缺失不影响首页 */ }
         const risk = viewState.lastDetail ? { risk_level: viewState.lastDetail.risk_level_raw, risk_score: viewState.lastDetail.risk_score } : {};
         const vm = QE.homeViewModel({ snapshot, learning, risk, todayTrades: eng.getTrades().filter((t) => QE.dayKeyOf(t.exit_time) === QE.dayKeyOf(Date.now())) });
+        bootMark("rh_vm_done");
         // V16.1-RV §19/§21:首页与模拟/内核共用同一资金口径,并登记进一致性对比
         const cap = capitalNow(eng, snapshot);
         recordCapital("home", cap);
+        bootMark("rh_capital_done");
         const setText = (id, value, cls) => { const el = $(id); if (!el) return; el.textContent = value; if (cls !== undefined) el.className = cls; };
         setText("hmTodayPnl", vm.today_pnl_text, "big " + (vm.today_pnl > 0 ? "green" : vm.today_pnl < 0 ? "red" : ""));
         setText("hmEquity", cap.has_data ? cap.total_equity.toFixed(2) + " USDT" : vm.total_equity_text);
@@ -4881,7 +4987,9 @@ export const page = String.raw`<!doctype html>
         const snapshot = eng.snapshot();
         const allTrades = eng.getTrades();
         const now = Date.now();
-        const vm = QE.paperViewModel({ wallets: snapshot.wallets, account: snapshot.account, positions: snapshot.positions, trades: allTrades, now, limit: Math.max(20, allTrades.length) });
+        // V16.2x 工单 §7:默认只渲染最近 50 条(此后"显示更多"分页 +50),不再把全部成交灌进视图层
+        const tradesShown = Math.max(20, QE.num(viewState.pfTradesShown, 50));
+        const vm = QE.paperViewModel({ wallets: snapshot.wallets, account: snapshot.account, positions: snapshot.positions, trades: allTrades, now, limit: tradesShown });
         // V17:成交 → 原始记录映射(复盘按 symbol 定位都要用真实字段,不用视图层近似)
         const tradeById = new Map();
         for (const t of allTrades) if (t && t.trade_id) tradeById.set(t.trade_id, t);
@@ -4949,6 +5057,20 @@ export const page = String.raw`<!doctype html>
             return el;
           }, { threshold: 200, rowHeight: 68, maxHeight: "70vh" });
         }
+        // V16.2x 工单 §7:分页"显示更多"(每次 +50;条目超过阈值自动走虚拟列表)
+        try {
+          const moreId = "pfTradesMore";
+          const old = $(moreId);
+          if (old) old.remove();
+          if (allTrades.length > tradesShown && trBox.parentNode) {
+            const more = vEl("button", "sec", "显示更多(" + (allTrades.length - tradesShown) + " 条)");
+            more.type = "button";
+            more.id = moreId;
+            more.addEventListener("click", () => { viewState.pfTradesShown = tradesShown + 50; void renderPaperPage(); });
+            if (trBox.nextSibling) trBox.parentNode.insertBefore(more, trBox.nextSibling);
+            else trBox.parentNode.appendChild(more);
+          }
+        } catch (error) { /* 分页按钮失败不影响页面 */ }
         await renderPaperStats(eng);
         return vm;
       }
@@ -8374,6 +8496,18 @@ export const page = String.raw`<!doctype html>
             } else {
               bootBox.appendChild(vEl("div", "empty-state", "启动过程无异常记录。"));
             }
+            // V16.2x 工单 §17:启动性能指标(Time to UI / 各阶段耗时 / 最长主线程任务)
+            const navAt = (B.marks || {}).nav_interactive;
+            bootBox.appendChild(rowOfBoot("Time to UI(导航可点)", (navAt && B.started_at) ? (navAt - B.started_at) + " ms" : "--"));
+            const timings = B.timings || {};
+            const tKeys = Object.keys(timings).sort((a, b) => QE.num(timings[b] && timings[b].durationMs, 0) - QE.num(timings[a] && timings[a].durationMs, 0));
+            for (const k of tKeys.slice(0, 12)) {
+              const t = timings[k] || {};
+              bootBox.appendChild(vEl("div", "v-note", String(k).replace(/^BOOT_/, "") + " · " + QE.num(t.durationMs, 0) + "ms" + (t.deferred ? " (懒加载)" : "") + ((t.flags || []).length ? " [" + t.flags.join(",") + "]" : "")));
+            }
+            const lts = (Array.isArray(B.longTasks) ? B.longTasks.slice() : []).sort((a, b) => QE.num(b.durationMs, 0) - QE.num(a.durationMs, 0)).slice(0, 5);
+            bootBox.appendChild(rowOfBoot("最长主线程任务", lts.length ? (lts[0].durationMs + " ms @" + lts[0].stage) : "无(>50ms)"));
+            for (const lt of lts) bootBox.appendChild(vEl("div", "v-note", "longtask " + lt.durationMs + "ms · 阶段 " + String(lt.stage) + (lt.during_boot ? " · 启动期" : "")));
           }
         } catch (error) { diagLog("diag-boot", error); }
 
@@ -9030,7 +9164,9 @@ export const page = String.raw`<!doctype html>
                 if (Array.isArray(rows) && rows.length) klinesBySymbol[symbol] = rows;
               } catch (error) { /* 单币失败不影响整轮 */ }
             }));
+            await yieldToMain();   // V16.2x 工单 §8/§13:批次之间显式让步,导航/点击优先
           }
+          bootMark("scan_fetch_done");
           let holdings = [];
           try {
             const eng = await getPaperEngine();
@@ -9041,6 +9177,7 @@ export const page = String.raw`<!doctype html>
             viewState.qualityBySymbol = bySym;
           } catch (error) { /* 引擎读取失败不阻断扫描 */ }
           const scan = QE.buildScan({ tickers: top, klinesBySymbol, holding: holdings, now: nowMs });
+          bootMark("scan_build_done");
           viewState.universeScan = scan;
           devPerf.note("universe:" + scan.counts.scanned + "→" + scan.counts.deep_analysis);
           renderMarketScan();
@@ -9052,11 +9189,16 @@ export const page = String.raw`<!doctype html>
       }
 
       // V16.2v §5/§16:【市场扫描】面板 —— "到底扫了什么 / 为什么没通过 / 几个达到入场条件"
-      function renderMarketScan() {
+      function renderMarketScan(options) {
+        const o = options || {};
         const panel = $("mkScanPanel");
         if (!panel) return;
         const scan = viewState.universeScan;
         if (!scan) { panel.classList.add("hidden"); return; }
+        // V16.2x 工单 §15:隐藏页面不做 DOM 渲染(只更新 Store);切回市场页时由 renderMarket 重绘
+        const marketActive = (() => { try { return $("page-market").classList.contains("active"); } catch (error) { return false; } })();
+        if (!o.force && !marketActive) { viewState.scanDirty = true; return; }
+        viewState.scanDirty = false;
         panel.classList.remove("hidden");
         const c = scan.counts || {};
         const q = viewState.qualityBySymbol || {};
@@ -9361,7 +9503,10 @@ export const page = String.raw`<!doctype html>
           const analysisBySymbol = {};
           const candles = { short: QE.closedCandleTime(Date.now(), intervalMsOf(MODE_INTERVAL.short)), long: QE.closedCandleTime(Date.now(), intervalMsOf(MODE_INTERVAL.long)) };
           const candidates = [];
+          let loopSymIdx = 0;
           for (const symbol of symbols) {
+            loopSymIdx += 1;
+            if (loopSymIdx % 4 === 0) await yieldToMain();   // V16.2x 工单 §13:每 4 个币让步,主线程优先响应点击
             if (!quotes[symbol] || !(quotes[symbol].price > 0)) continue;
             // Short:主 Decision Candle = 1h 已收盘;Long:主 Decision Candle = 4h 已收盘
             for (const mode of ["short", "long"]) {
@@ -9491,16 +9636,18 @@ export const page = String.raw`<!doctype html>
         try {
           const store = await historyStore();
           const adapter = paperStoreAdapter(store);
+          // V16.2x 工单 §6/§13:先 count(不拉行)再决定是否真的读表 —— 小库零读取
           const counts = {
-            paper_orders: (await adapter.all("paper_orders")).length,
-            paper_equity_snapshots: (await adapter.all("paper_equity_snapshots")).length,
-            signals: (await adapter.all("signals")).length,
-            paper_trades: (await adapter.all("paper_trades")).length,
-            learning_samples: (await adapter.all("learning_samples")).length,
-            model_registry: (await adapter.all("model_registry")).length,
-            sync_queue_synced: (await adapter.all("sync_queue")).filter((i) => i.sync_status === "SYNCED").length
+            paper_orders: await adapter.count("paper_orders"),
+            paper_equity_snapshots: await adapter.count("paper_equity_snapshots"),
+            signals: await adapter.count("signals"),
+            paper_trades: await adapter.count("paper_trades"),
+            learning_samples: await adapter.count("learning_samples"),
+            model_registry: await adapter.count("model_registry"),
+            sync_queue_synced: await adapter.count("sync_queue")
           };
           const plan = QE.planRetention(counts, { now: Date.now() });
+          let processed = 0;
           for (const item of plan.delete_rows) {
             if (["paper_trades", "paper_daily_stats", "learning_samples", "model_registry"].includes(item.table)) continue; // 核心历史永不动
             const rows = await adapter.all(item.table);
@@ -9508,7 +9655,10 @@ export const page = String.raw`<!doctype html>
             for (const row of drop) {
               const key = row.id || row.order_id || row.signal_id || row.snapshot_id || row.trade_id || row.item_id;
               if (key) await adapter.del(item.table, key);
+              processed += 1;
+              if (processed % 50 === 0) await yieldToMain();   // 工单 §13:批量间让步,主线程优先响应用户
             }
+            await yieldToMain();
           }
           return plan;
         } catch (error) {
@@ -9876,6 +10026,7 @@ export const page = String.raw`<!doctype html>
         // V16.2s:①"先绘制、后重活" —— active 切换后先让浏览器画一帧,再跑该页数据刷新;
         //         ②重复点击当前 Tab = 回到顶部(不再重跑全量渲染、不重复请求);
         //         ③点击埋点(tap→feedback→transition→first_paint→ready)。
+        bootBegin("BOOT_NAV_READY");
         try {
         // V16.2w P0:任何绑定异常只记录(BOOT_FAILED)并继续 —— 单点失败不得让后续绑定/启动静默消失
         document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -9905,6 +10056,8 @@ export const page = String.raw`<!doctype html>
         });
         window.__quantNavOwned = true;   // 单一导航处理器:head 兜底导航退场(不双绑)
         bootStage("nav_bound");
+        bootEnd("BOOT_NAV_READY");
+        bootMark("nav_interactive");
         homeBootPlaceholders();          // 首页先给"加载中…"(此后即便启动失败也不会看到永久 --)
         } catch (error) { bootFail("bind:nav", error); }
         try {
@@ -10082,11 +10235,15 @@ export const page = String.raw`<!doctype html>
         });
         } catch (error) { bootFail("bind:main", error); }
         bootStage("engine_init");
+        bootBegin("BOOT_POSITIONS_READY");
         try { await getPaperEngine(); } catch (error) { bootFail("engine", error); }
+        bootEnd("BOOT_POSITIONS_READY");
         bootStage("activate_home");
         try { setActivePage("home"); } catch (error) { bootFail("activate_home", error); }   // 初始就位:移动页激活时收起旧版容器,保证首屏不是空白
         bootStage("home_render");
+        bootBegin("BOOT_ACCOUNT_SUMMARY_READY");
         try { await renderHome(); bootStage("account_ready"); } catch (error) { bootFail("renderHome_tail", error); }
+        bootEnd("BOOT_ACCOUNT_SUMMARY_READY");
         // V16.2w P0:UI_READY = 本地账户已 hydrate + 导航可用(不依赖任何 Market API) —— 最先达成
         bootStage("ui_ready");
         BOOT.ui_ready = true;
@@ -10095,13 +10252,19 @@ export const page = String.raw`<!doctype html>
           const hardErrors = (BOOT.errors || []).filter((e) => !/^storage_/.test(String(e && e.stage)));
           if (bb) { if (hardErrors.length) bb.classList.remove("hidden"); else bb.classList.add("hidden"); }
         } catch (error) { /* 横幅状态失败不影响启动 */ }
-        void renderMarket(false).then(() => bootStage("market_ready")).catch(() => bootStage("market_degraded"));
+        bootBegin("BOOT_MARKET_READY");
+        void renderMarket(false).then(() => { bootStage("market_ready"); bootEnd("BOOT_MARKET_READY"); })
+          .catch(() => { bootStage("market_degraded"); bootEnd("BOOT_MARKET_READY"); })
+          .then(() => {
+            // V16.2x 工单 §3/§8:扫描器属 Phase B —— 市场阶段落定后启动(复用刚取的 tickers),全程不阻塞导航
+            bootBegin("BOOT_SCANNER_READY");
+            void refreshUniverseScan(true).then(() => bootEnd("BOOT_SCANNER_READY")).catch(() => bootEnd("BOOT_SCANNER_READY"));
+          });
         // V16.2w P0:后台定时器/worker 启动分块隔离(失败只记录,不影响已就绪的 UI)
         try {
-        // V16.2v §15:动态币种池 —— 首轮立即扫描,之后每 10 分钟刷新(与后台运行时同节奏)
+        // V16.2v §15:动态币种池 —— 之后每 10 分钟刷新(与后台运行时同节奏)
         if (universeTimer) clearInterval(universeTimer);
         universeTimer = setInterval(() => { void refreshUniverseScan(false); }, 600000);
-        void refreshUniverseScan(true);
         applyNotificationRoute();   // V16.1-RV §50:冷启动若是"点通知进来的",按 kind 深链
         if (homeTimer) clearInterval(homeTimer);
         homeTimer = setInterval(() => { if (!$("page-home").classList.contains("active") && !$("page-paper").classList.contains("active")) return; void renderHome(); if ($("page-paper").classList.contains("active")) void renderPaperPage(); }, 8000);
@@ -10120,13 +10283,23 @@ export const page = String.raw`<!doctype html>
         // V18:Current Candle 收盘倒计时(每秒刷新,全屏内外都显示)
         if (dtSecTimer) clearInterval(dtSecTimer);
         dtSecTimer = setInterval(() => { dtUpdateCountdown(); }, 1000);
-        void runRetention();
-        // V14.5:后台 worker 与 UI 解耦启动(停在任何页面都持续更新外部情报/研究/预测/回撤)
-        startBackgroundWorkers();
         // V15:恢复最近聊天记录(界面不常驻,记录按 symbol 保留)
         loadChatSessions();
-        // 启动即尝试装载 Champion(有工件就用真实推理,没有就走回退)
-        void refreshChampion(false);
+        // V16.2x Phase C(工单 §10/§11/§6):模型装载 / 学习·影子·研究 / 存量清理
+        // 全部推迟到浏览器空闲 —— 启动时不与首屏抢主线程(超时 5s 兜底,保证最终一定执行)
+        scheduleIdle("models", () => {
+          bootBegin("BOOT_MODELS_READY");
+          void refreshChampion(false).then(() => bootEnd("BOOT_MODELS_READY")).catch(() => bootEnd("BOOT_MODELS_READY"));
+        });
+        scheduleIdle("learning", () => {
+          bootBegin("BOOT_LEARNING_READY");
+          startBackgroundWorkers();
+          bootEnd("BOOT_LEARNING_READY");
+        });
+        scheduleIdle("retention", () => {
+          bootBegin("BOOT_RETENTION");
+          void runRetention().then(() => bootEnd("BOOT_RETENTION")).catch(() => bootEnd("BOOT_RETENTION"));
+        });
         } catch (error) { bootFail("background", error); }
         // 只读观测接口:供导航压力测试与真机诊断读取真实运行态(不含任何业务写操作)
         window.__quantUI = {
@@ -10143,6 +10316,13 @@ export const page = String.raw`<!doctype html>
             review: null,
             loop_running: loopRunning,
             diag: (window.__quantDiag || []).length,
+            // V16.2x 工单 §12:实例计数(引擎/定时器/任务包;任何 >1 = P0 BUG)
+            instances: {
+              engine: window.__quantEngineInstances || 0,
+              home_timer: Boolean(homeTimer), universe_timer: Boolean(universeTimer), risk_timer: Boolean(riskTimer),
+              retention_timer: Boolean(retentionTimer), dt_poll_timer: Boolean(dtPollTimer), dt_sec_timer: Boolean(dtSecTimer),
+              bg_data_timer: Boolean(bgDataTimer), research_timer: Boolean(researchTimer), task_bag: Boolean(taskBag)
+            },
             // V16.1-RV §19-§21/§33/§34:真机脚本化验收观测面(只读)
             runtime: (() => {
               const rt = readRuntimeStatus();
@@ -10233,6 +10413,13 @@ export const page = String.raw`<!doctype html>
           },
           // V14.5:运行时观测接口(供压力测试/真机诊断读取真实运行态)
           loopTick: (options) => paperLoopTick({ force: true, ...(options || {}) }),
+          // V16.2x 工单 §12:实例计数审计(任何 >1 都是 P0 BUG;测试与诊断页都读这里)
+          instances: () => ({
+            engine: window.__quantEngineInstances || 0,
+            home_timer: Boolean(homeTimer), universe_timer: Boolean(universeTimer), risk_timer: Boolean(riskTimer),
+            retention_timer: Boolean(retentionTimer), dt_poll_timer: Boolean(dtPollTimer), dt_sec_timer: Boolean(dtSecTimer),
+            bg_data_timer: Boolean(bgDataTimer), research_timer: Boolean(researchTimer), task_bag: Boolean(taskBag)
+          }),
           backgroundStats: () => backgroundWorkerStats(),
           researchRead: () => researchAgent.read(),
           hubSnapshot: () => externalHub.snapshot(),

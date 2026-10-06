@@ -413,6 +413,19 @@ async function clickNav(pageName) {
 }
 
 // ---------- 5) 一轮导航循环 ----------
+// §67 说明:V16.2x 起"模型/学习·研究/存量清理"属 Phase C,推迟到空闲(或 1.5s 超时兜底)后才初始化。
+// 若在它们落位前取基线,会把"合法的延迟初始化"误判为定时器泄漏 —— 因此先等 Phase C 就位再取基线。
+await new Promise((r) => setTimeout(r, 1700));   // 真实等待 Phase C 的 1.5s 兜底定时器
+await flush(30);
+await waitFor(() => {
+  const inst = sandbox.window.__quantUI.instances();
+  return inst.bg_data_timer && inst.research_timer && inst.task_bag;
+}, "Phase C(学习/研究定时器)就位");
+{
+  const inst = sandbox.window.__quantUI.instances();
+  const over = Object.entries(inst).filter(([k, v]) => typeof v === "number" ? v > 1 : false);
+  check("RuntimeInstanceTest: 全实例计数 ≤1(引擎/各定时器/任务包)", over.length === 0, JSON.stringify(inst));
+}
 const baseline = {
   listeners: dom.counters.listeners,
   persistent: dom.counters.persistentListeners,
@@ -489,7 +502,8 @@ check("100 轮中从未出现黑屏(active 页面数恒 > 0)", roundStats.blackS
 check("Paper Engine 实例恒为 1(无重复创建)", engineInstances === 1 && roundStats.engineGrowth === 0, "instances=" + engineInstances);
 check("长期节点上的 listener 不随导航增长(无泄漏)", persistentAfter <= baseline2.persistent, `${baseline2.persistent} → ${persistentAfter}`);
 check("AbortSignal 被真正 abort(不只是丢弃响应)", signalAborts > 0, "signal_aborts=" + signalAborts);
-check("interval 定时器数量不增长", intervalsAfter <= baseline2.intervals, `${baseline2.intervals} → ${intervalsAfter}`);
+if (VERBOSE) console.log("PROBE interval ms list: " + JSON.stringify([...timers.intervals.values()].map((i) => i.ms)));
+check("interval 定时器数量不增长", intervalsAfter <= baseline2.intervals, `${baseline2.intervals} → ${intervalsAfter} ms=` + JSON.stringify([...timers.intervals.values()].map((i) => i.ms)));
 check("timeout 定时器数量不增长", timeoutsAfter <= baseline2.timeouts + 8, `${baseline2.timeouts} → ${timeoutsAfter}`);
 check("离开页面真正取消请求(aborted > 0)", finalState.requests.aborted > 0, "aborted=" + finalState.requests.aborted);
 check("请求代际统计记录了丢弃/取消", finalState.requests.started > 0);

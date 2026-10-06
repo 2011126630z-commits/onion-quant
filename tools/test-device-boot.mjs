@@ -161,7 +161,7 @@ function jsonResponse(body, status) {
 
 // ---------- 3) 变体运行器(设备复刻) ----------
 async function runVariant(name, cfg) {
-  const { device, lsSeed, runtimeJson, lsThrow, skipMain, corruptKey, errorEventProbe } = cfg;
+  const { device, lsSeed, runtimeJson, lsThrow, skipMain, corruptKey, errorEventProbe, hangFetch, perfObserver } = cfg;
   const dom = makeDom(pageHtml);
   const timers = makeTimers();
   const rafQueue = [];
@@ -188,6 +188,8 @@ async function runVariant(name, cfg) {
     setTimeout: timers.set, setInterval: timers.setInterval, clearTimeout: timers.clear, clearInterval: timers.clear,
     fetch: async (url, options) => {
       fetchCalls.push(String(url));
+      // V16.2x 工单 §4:可注入"永远挂起"的行情请求,验证导航绝不等待行情
+      if (hangFetch && /\/api\/(klines|tickers|funding)/.test(String(url))) return new Promise(() => { /* 永不返回 */ });
       const signal = options && options.signal;
       if (signal && signal.aborted) { const e = new Error("aborted"); e.name = "AbortError"; throw e; }
       const u = String(url);
@@ -220,11 +222,19 @@ async function runVariant(name, cfg) {
     requestAnimationFrame: windowObj.requestAnimationFrame,
     getComputedStyle: () => ({ getPropertyValue: () => "#123456" }),
     AbortController, AbortSignal, Promise, JSON, Math, Date, Number, String, Object, Array, Error, Set, Map, isFinite, parseInt, parseFloat,
-    Intl, encodeURIComponent, decodeURIComponent, URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} },
-    Blob: class { constructor() {} }, FileReader: class { readAsText() {} },
+    Intl, encodeURIComponent, decodeURIComponent,
+    // V16.2x:URL 必须是真构造函数(与浏览器一致)—— native-bridge 的 new URL(...) 依赖它;仅加 blob 静态桩
+    URL, Blob: class { constructor() {} }, FileReader: class { readAsText() {} },
     Element: class {}, Event: class {}, CustomEvent: class {},
-    indexedDB: undefined, navigator: { userAgent: device ? "Mozilla/5.0 (Linux; Android 16; V2502A) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36" : "node-test" }
+    indexedDB: undefined, navigator: { userAgent: device ? "Mozilla/5.0 (Linux; Android 16; V2502A) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36" : "node-test" },
+    performance: { now: () => Date.now(), timeOrigin: Date.now() }
   };
+  if (perfObserver) {
+    // 假 Long Task 观察器:验证页面确实注册 observe({entryTypes:["longtask"]}) 且条目入账(工单 §2)。
+    // 注意:页面可能存在多个观察者(护盾 + devPerf),这里收集【全部】回调逐一驱动,避免只覆盖最后一个。
+    class FakePO { constructor(cb) { windowObj.__ltCbs = (windowObj.__ltCbs || []).concat([cb]); } observe(opts) { windowObj.__ltObserving = true; windowObj.__ltOpts = opts; } }
+    sandbox.PerformanceObserver = FakePO;
+  }
   sandbox.globalThis = sandbox; sandbox.self = sandbox;
   sandbox.fetch = windowObj.fetch;
   sandbox.Response = class {
@@ -254,7 +264,9 @@ async function runVariant(name, cfg) {
   }
   const flush = async (times) => {
     for (let i = 0; i < (times || 40); i += 1) {
-      await new Promise((r) => setImmediate(r));
+      // 交替 setImmediate/setTimeout:真实事件循环里 timers 与 check 相都会推进,
+      // 纯 setImmediate 循环在某些时序下会让挂起的 setTimeout(0)(引擎/页面的让步)得不到执行机会。
+      await new Promise((r) => (i % 2 ? setImmediate(r) : setTimeout(r, 0)));
       if (rafQueue.length) { const batch = rafQueue.splice(0, rafQueue.length); for (const fn of batch) { try { fn(Date.now()); } catch (error) { /* ignore */ } } }
     }
   };
@@ -360,6 +372,122 @@ console.log("== F. 未捕获错误 → window.error 记录(WebView onerror 语�
   const b = bootOf(r.sandbox);
   check("UncaughtErrorTest: 未捕获错误写入 BOOT(errors + fatal + 堆栈)", (b.errors || []).some((e) => String(e.error).includes("probe_uncaught_error") && String(e.stack || "").length > 0) && b.fatal === true, JSON.stringify((b.errors || []).slice(-2)));
   check("UncaughtErrorTest: 未捕获错误点亮横幅(不静默)", !r.dom.byId.get("bootBanner").__classes.includes("hidden"));
+}
+
+console.log("== G. 启动响应性 / 主线程解阻塞(工单 STARTUP RESPONSIVENESS) ==");
+if (process.env.QE_DEBUG_BOOT === "1") {
+  for (let rep = 1; rep <= 2; rep += 1) {
+    const rr = await runVariant("debug" + rep, { device: true, lsSeed: DEVICE_LS, runtimeJson: null });
+    const B = bootOf(rr.sandbox);
+    console.log("DEBUG#" + rep + " marks " + JSON.stringify(Object.keys(B.marks || {})));
+    console.log("DEBUG#" + rep + " openStages " + JSON.stringify(Object.keys(B._open || {})));
+    if (Object.keys(B._open || {}).length) {
+      console.log("DEBUG#" + rep + " timersBefore " + JSON.stringify({ live: rr.timers.liveTimeouts.size, intervals: rr.timers.intervals.size, fired: rr.timers.stats.fired, cleared: rr.timers.stats.cleared }));
+      await rr.flush(400);
+      await new Promise((r) => setTimeout(r, 300));
+      await rr.flush(100);
+      const B2 = bootOf(rr.sandbox);
+      console.log("DEBUG#" + rep + " afterExtraFlush openStages " + JSON.stringify(Object.keys(B2._open || {})) + " lastMarks=" + JSON.stringify(Object.keys(B2.marks || {}).slice(-4)));
+      console.log("DEBUG#" + rep + " timersAfter " + JSON.stringify({ live: rr.timers.liveTimeouts.size, fired: rr.timers.stats.fired, cleared: rr.timers.stats.cleared }));
+    }
+    console.log("DEBUG#" + rep + " ctx " + vm.runInContext("typeof MessageChannel + '/' + typeof setTimeout + '/' + typeof URL + '/store=' + String(vstate.store && vstate.store.mode)", rr.sandbox));
+    console.log("DEBUG#" + rep + " engine " + vm.runInContext("window.__engProbe = (async () => { try { const eng = await getPaperEngine(); return 'state:' + eng.getState(); } catch (e) { return 'ERR:' + String((e && e.message) || e); } })(); ''", rr.sandbox));
+    await rr.flush(80);
+    const engProbe = await Promise.race([rr.sandbox.window.__engProbe, new Promise((r) => setTimeout(() => r("PENDING"), 900))]);
+    console.log("DEBUG#" + rep + " engProbe " + JSON.stringify(engProbe));
+    console.log("DEBUG#" + rep + " errors " + JSON.stringify((B.errors || []).map((e) => e.stage + ":" + String(e.error).slice(0, 90))));
+    if (rep === 1) {
+      const rp = await runVariant("debug-perf", { device: true, lsSeed: DEVICE_LS, runtimeJson: null, perfObserver: true });
+      console.log("DEBUG#" + rep + " ltCbType " + (typeof rp.windowObj.__ltCb) + " observing=" + String(rp.windowObj.__ltObserving));
+      console.log("DEBUG#" + rep + " pushTest " + vm.runInContext("window.__quantBoot.longTasks.push({ test: 1 }); String(window.__quantBoot.longTasks.length)", rp.sandbox));
+      console.log("DEBUG#" + rep + " hostRead " + JSON.stringify((bootOf(rp.sandbox).longTasks || []).slice(-1)));
+      let cbErr = null;
+      try { rp.windowObj.__ltCb([{ getEntries: () => [{ startTime: Date.now(), duration: 137 }] }]); } catch (e) { cbErr = String((e && e.message) || e); }
+      console.log("DEBUG#" + rep + " ctxRead " + vm.runInContext("JSON.stringify(window.__quantBoot.longTasks.slice(-2))", rp.sandbox) + " cbErr=" + JSON.stringify(cbErr));
+    }
+  }
+  process.exit(0);
+}
+{
+  const pageSrc = inlineScripts[1];
+  const bundleSrc = qengineSrc;
+  // 阶段自检:十个 BOOT 阶段是否都在协议与产线里
+  for (const stage of ["BOOT_HTML_READY", "BOOT_STORE_MINIMAL_READY", "BOOT_NAV_READY", "BOOT_ACCOUNT_SUMMARY_READY", "BOOT_DB_READY", "BOOT_POSITIONS_READY", "BOOT_MARKET_READY", "BOOT_SCANNER_READY", "BOOT_MODELS_READY", "BOOT_LEARNING_READY"]) {
+    check("BootStageProtocolTest: 存在阶段 " + stage, pageSrc.includes(stage));
+  }
+  check("StartupPerfTest: 分块让步使用 MessageChannel(不受后台定时器节流)", /MessageChannel/.test(pageSrc) && /MessageChannel/.test(bundleSrc) && /yieldEventLoop/.test(bundleSrc));
+  check("StartupPerfTest: Long Task 观察器已接线(entryTypes:[longtask] + 阶段标注)", /PerformanceObserver/.test(pageSrc) && /entryTypes: \["longtask"\]/.test(pageSrc));
+  check("StartupPerfTest: 引擎 hydrate 分阶段让步(每 200 条/20 仓位让出主线程)", /workUnits % 200 === 0/.test(bundleSrc) && /workUnits % 20 === 0/.test(bundleSrc));
+  check("StartupPerfTest: retention 先 count 再读表(小库零全量读取) + 每 50 删除让步", /adapter\.count\("paper_orders"\)/.test(pageSrc) && /processed % 50 === 0/.test(pageSrc));
+  check("StartupPerfTest: 扫描批次间显式让步", /await yieldToMain\(\);/.test(pageSrc));
+  check("StartupPerfTest: 成交列表默认 50 + 显示更多分页(不再全量灌视图层)", /pfTradesShown: 50/.test(pageSrc) && /显示更多/.test(pageSrc) && /limit: tradesShown/.test(pageSrc));
+  check("StartupPerfTest: 隐藏页不做扫描面板 DOM 渲染(只在 store 更新)", /if \(!o\.force && !marketActive\) \{ viewState\.scanDirty = true; return; \}/.test(pageSrc));
+  check("NoFullscreenBlockerTest: 全屏遮罩默认不可点(display:none 或 .hidden)", /\.sheet-mask \{[^}]*display: none/.test(pageHtml) && /\.v-overlay \{[^}]*display: none/.test(pageHtml) && /#bootBanner\.hidden \{ display: none; \}/.test(pageHtml) && /\.fab \{[^}]*display: none/.test(pageHtml) && /\.toast-box \{[^}]*pointer-events: none/.test(pageHtml));
+
+  const r = await runVariant("startup-perf", { device: true, lsSeed: DEVICE_LS, runtimeJson: null, perfObserver: true });
+  const b = bootOf(r.sandbox);
+  const t = b.timings || {};
+  check("StartupPerfTest: 观察器已注册 observe({entryTypes:[longtask]})", r.windowObj.__ltObserving === true && Array.isArray((r.windowObj.__ltOpts || {}).entryTypes) && r.windowObj.__ltOpts.entryTypes[0] === "longtask");
+  const ltCbs = Array.isArray(r.windowObj.__ltCbs) ? r.windowObj.__ltCbs : [];
+  let cbDriven = 0;
+  // PerformanceObserver 回调收到的是 PerformanceObserverEntryList(带 getEntries 的对象),不是数组
+  for (const cb of ltCbs) { try { cb({ getEntries: () => [{ startTime: Date.now(), duration: 137 }] }); cbDriven += 1; } catch (error) { /* 记录在断言里 */ } }
+  const rec = (bootOf(r.sandbox).longTasks || []).find((x) => x.durationMs === 137);
+  check("StartupPerfTest: 长任务条目入账(BOOT.longTasks 带阶段标注)", cbDriven > 0 && Boolean(rec) && typeof rec.stage === "string", JSON.stringify({ cbs: ltCbs.length, driven: cbDriven, got: (bootOf(r.sandbox).longTasks || []).slice(-2) }));
+  check("BootOrderTest: 阶段时序 NAV < POSITIONS < ACCOUNT < MARKET < SCANNER", (() => {
+    const log = b.stageLog || [];
+    const endAt = (name) => { const e = log.find((x) => x.kind === "end" && x.name === name); return e ? e.at : null; };
+    const nav = endAt("BOOT_NAV_READY"); const pos = endAt("BOOT_POSITIONS_READY"); const acc = endAt("BOOT_ACCOUNT_SUMMARY_READY"); const mkt = endAt("BOOT_MARKET_READY"); const scan = endAt("BOOT_SCANNER_READY");
+    return nav != null && pos != null && acc != null && mkt != null && scan != null && nav <= pos && pos <= acc && acc < mkt && mkt < scan;
+  })(), JSON.stringify((b.stageLog || []).filter((x) => x.kind === "end").map((x) => x.name + "@" + (x.at - b.started_at))));
+  check("NavFirstTest: 导航绑定(可点)≤ 1000ms 且先于一切数据阶段", (t.BOOT_NAV_READY || {}).durationMs <= 1000, JSON.stringify(t.BOOT_NAV_READY));
+  check("LazyDbTest: 全量历史在启动时未加载(懒加载标记 + 打开验证页才读)", (t.BOOT_DB_READY || {}).deferred === true, JSON.stringify(t.BOOT_DB_READY));
+  check("IdleDeferTest: 启动刚完成时模型/学习/清理尚未执行(推迟到空闲)", (() => {
+    const log = b.stageLog || [];
+    const started = (name) => log.some((x) => x.kind === "begin" && x.name === name);
+    return !started("BOOT_MODELS_READY") && !started("BOOT_LEARNING_READY") && !started("BOOT_RETENTION");
+  })(), JSON.stringify((b.stageLog || []).map((x) => x.kind + ":" + x.name)));
+  const ui = r.ui();
+  check("RuntimeInstancesTest: 全实例计数 ≤1(引擎 + 8 个定时器 + 任务包)", Boolean(ui && typeof ui.instances === "object") && Object.values(ui.instances).every((v) => (typeof v === "boolean") || v <= 1), JSON.stringify(ui && ui.instances));
+  // 等空闲兜底(1.5s)落位:模型/学习/清理最终必须执行
+  await new Promise((resolve) => setTimeout(resolve, 1750));
+  await r.flush(40);
+  const b2 = bootOf(r.sandbox);
+  check("IdleDeferTest: 空闲后模型/学习/清理均已落地执行(不丢任务)", ["BOOT_MODELS_READY", "BOOT_LEARNING_READY", "BOOT_RETENTION"].every((name) => (b2.timings || {})[name] || (b2.stageLog || []).some((x) => x.kind === "end" && x.name === name)), JSON.stringify((b2.stageLog || []).filter((x) => x.kind === "end" && /MODELS|LEARNING|RETENTION/.test(x.name)).map((x) => x.name)));
+}
+{
+  // 行情永远挂起:四个 Tab 仍必须立即可切换(工单 §4)
+  const r = await runVariant("hang-market", { device: false, lsSeed: DEVICE_LS, hangFetch: true });
+  const switchLog = [];
+  let ok = true;
+  for (const p of ["market", "paper", "settings", "home"]) {
+    await r.clickNav(p);
+    const st = r.ui();
+    const act = r.dom.pageSections.filter((s) => s.__classes.includes("active")).map((s) => s.id);
+    switchLog.push(p + "=>" + (st ? st.currentPage : "null"));
+    if (!st || st.currentPage !== p || act.join() !== "page-" + p) ok = false;
+  }
+  check("NavNeverWaitsMarketTest: 行情请求永不返回时四 Tab 仍立即切换", ok, switchLog.join(" | "));
+  check("NavNeverWaitsMarketTest: 首页数据不依赖行情接口(本地账户照常)", hmText(r.dom, "hmEquity") === "100.00 USDT", hmText(r.dom, "hmEquity"));
+}
+{
+  // 冷启动 ×10:每次立即连点四个 Tab(不等任何后台初始化)
+  let alive = 0; let switched = 0; const problems = [];
+  for (let k = 0; k < 10; k += 1) {
+    const rr = await runVariant("cold-" + k, { device: true, lsSeed: DEVICE_LS, runtimeJson: null });
+    const b = bootOf(rr.sandbox);
+    const failed = (b.errors || []).some((e) => !/^storage_/.test(String(e.stage)));
+    if (rr.syncErrors.length === 0 && !failed) alive += 1; else problems.push("boot" + k + ":" + (rr.syncErrors[0] || JSON.stringify((b.errors || []).slice(-1))));
+    let ok = true;
+    for (const p of ["market", "paper", "settings", "home"]) {
+      await rr.clickNav(p);
+      const st = rr.ui();
+      if (!st || st.currentPage !== p) { ok = false; problems.push("switch" + k + "@" + p + ":" + (st ? st.currentPage : "no-ui")); }
+    }
+    if (ok) switched += 1;
+  }
+  check("ColdStart10Test: 10 次冷启动均存活且无 BOOT_FAILED", alive === 10, problems.join(" ; "));
+  check("ColdStart10Test: 每次冷启动后立即连点四 Tab 全部切换成功", switched === 10, problems.join(" ; "));
 }
 
 console.log("\n" + passed + " passed, " + failed + " failed");

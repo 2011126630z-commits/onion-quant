@@ -311,6 +311,25 @@ check("V16.2w 诊断页 Boot Status 卡片(阶段/自愈/错误/兜底导航计�
 check("V16.2w 单一导航处理器(head 兜底遇 __quantNavOwned 即退场)",
   /if \(window\.__quantNavOwned\) return;/.test(pageSrc));
 
+// ---- V16.2x:P0 启动响应性 / 主线程解阻塞(工单 STARTUP RESPONSIVENESS) ----
+check("V16.2x 启动阶段协议(十阶段 + bootBegin/bootEnd + 标准阈值标记)",
+  /BOOT_HTML_READY/.test(pageSrc) && /BOOT_STORE_MINIMAL_READY/.test(pageSrc) && /BOOT_NAV_READY/.test(pageSrc)
+  && /BOOT_ACCOUNT_SUMMARY_READY/.test(pageSrc) && /BOOT_DB_READY/.test(pageSrc) && /BOOT_POSITIONS_READY/.test(pageSrc)
+  && /BOOT_MARKET_READY/.test(pageSrc) && /BOOT_SCANNER_READY/.test(pageSrc) && /BOOT_MODELS_READY/.test(pageSrc)
+  && /BOOT_LEARNING_READY/.test(pageSrc) && /function bootBegin\(/.test(pageSrc) && /function bootEnd\(/.test(pageSrc) && />1000ms/.test(pageSrc));
+check("V16.2x Phase C 空闲延后(模型/学习·研究/存量清理不与首屏抢主线程)",
+  /function scheduleIdle\(/.test(pageSrc) && /scheduleIdle\("models"/.test(pageSrc) && /scheduleIdle\("learning"/.test(pageSrc) && /scheduleIdle\("retention"/.test(pageSrc));
+check("V16.2x 主线程让步通道(MessageChannel 不受后台定时器节流;引擎与页面双侧)",
+  /MessageChannel/.test(pageSrc) && /MessageChannel/.test(bundle) && /yieldEventLoop/.test(bundle) && /function yieldToMain\(/.test(pageSrc));
+check("V16.2x 引擎 hydrate 与历史迁移分块(单任务 ≤50ms 量级)",
+  /workUnits % 200 === 0/.test(bundle) && /workUnits % 20 === 0/.test(bundle) && /processed % 50 === 0/.test(pageSrc));
+check("V16.2x DB 懒加载(启动只 count;全量历史打开相关页面才读)",
+  /ensureRecordsLoaded/.test(pageSrc) && /updateBadgeCounts/.test(pageSrc) && /deferred = true/.test(pageSrc) && /recordsLoaded/.test(pageSrc));
+check("V16.2x 成交列表窗口化(默认 50 + 显示更多)+ 隐藏页不渲染扫描面板",
+  /pfTradesShown: 50/.test(pageSrc) && /显示更多/.test(pageSrc) && /limit: tradesShown/.test(pageSrc) && /scanDirty = true/.test(pageSrc));
+check("V16.2x Long Task 观测 + 实例计数暴露 + 诊断性能表",
+  /entryTypes: \["longtask"\]/.test(pageSrc) && /instances: \{/.test(pageSrc) && /Time to UI/.test(pageSrc) && /最长主线程任务/.test(pageSrc));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
 console.log("ARTIFACT CHECKS OK");

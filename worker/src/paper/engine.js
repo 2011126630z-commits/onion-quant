@@ -49,6 +49,33 @@ export const MODE_CONFIG = {
 };
 const STALE_QUOTE_MS = 5 * 60000;
 
+// V16.2x《STARTUP RESPONSIVENESS》工单 §3/§13:引擎 hydrate 分阶段让步,单次同步任务不得超过 ~50ms 量级。
+// 纯模块:浏览器与 Node 都可用;mark 仅在页面环境(window.__quantBoot 存在时)记录,用于启动性能归因。
+function perfMark(name) {
+  try {
+    if (typeof window !== "undefined" && window.__quantBoot) {
+      const B = window.__quantBoot;
+      B.marks = B.marks || {};
+      if (!B.marks[name]) B.marks[name] = Date.now();
+    }
+  } catch (error) { /* 性能标记失败不影响引擎 */ }
+}
+function yieldEventLoop() {
+  // V16.2x:必须用 MessageChannel(任务队列)而不是 setTimeout —— 后台/隐藏 WebView(如 Android 前台服务)
+  // 会把 setTimeout 节流到 ~1s/次,十几个让步点会把初始化拖成十几秒。MessageChannel 不受该节流。
+  return new Promise((resolve) => {
+    try {
+      if (typeof MessageChannel === "function") {
+        const ch = new MessageChannel();
+        ch.port1.onmessage = () => { try { ch.port1.close(); } catch (error) { /* 忽略 */ } resolve(); };
+        ch.port2.postMessage(0);
+        return;
+      }
+    } catch (error) { /* 回退 setTimeout */ }
+    setTimeout(resolve, 0);
+  });
+}
+
 // 幂等键:同一 mode+symbol+信号时间+方向 只允许一次下单
 export function idempotencyKey(mode, symbol, closedCandleTime, direction, strategyVersion) {
   // 严格使用【已收盘K线时间】,禁止用 Date.now() 作为信号标识
@@ -306,8 +333,11 @@ export function createPaperEngine(deps) {
   async function integrityRepair() {
     const repairs = [];
     const openBefore = engine.positions.filter((p) => p.status === "OPEN").length;
+    let workUnits = 0;   // V16.2x:周期性让步计数 —— 历史迁移不得在单一任务里扫完全部成交
 
     for (const pos of engine.positions.filter((p) => p.status === "OPEN")) {
+      workUnits += 1;
+      if (workUnits % 20 === 0) await yieldEventLoop();
       const reasons = [];
       const priceOk = isSafeAmount(pos.current_price);
       const price = priceOk ? num(pos.current_price) : num(pos.entry_price);
@@ -364,6 +394,8 @@ export function createPaperEngine(deps) {
     // 成交:已实现盈亏超过"保证金 + 费用"或数量/价格非法 → 标记为无效样本来源
     const boundOfTrade = (t) => Math.abs(num(t.entry_price) * num(t.quantity)) / Math.max(num(t.leverage, 1), 1) + Math.abs(num(t.fees));
     for (const t of engine.trades) {
+      workUnits += 1;
+      if (workUnits % 200 === 0) await yieldEventLoop();
       const reasons = [];
       if (!Number.isFinite(Number(t.net_pnl))) reasons.push("pnl_not_finite");
       if (!(num(t.entry_price) > 0) || !(num(t.exit_price) > 0)) reasons.push("invalid_price");
@@ -380,6 +412,8 @@ export function createPaperEngine(deps) {
 
     // V15 P0 §15/§16:碎片事件与越界收益标记为"不可用于学习"(不改金额)
     for (const t of engine.trades) {
+      workUnits += 1;
+      if (workUnits % 200 === 0) await yieldEventLoop();
       if (t.invalid_for_learning) continue;
       const flags = [];
       const pct = numOrNull(t.return_pct);
@@ -400,6 +434,8 @@ export function createPaperEngine(deps) {
     // V15 P0 §15:同一仓位在短时间内被反复部分平仓(修复前的切碎簇)→ 整簇标记不可用于学习
     const byPosition = new Map();
     for (const t of engine.trades) {
+      workUnits += 1;
+      if (workUnits % 200 === 0) await yieldEventLoop();
       if (t.partial !== true) continue;
       const key = positionIdOf(t);
       if (!byPosition.has(key)) byPosition.set(key, []);
@@ -421,9 +457,17 @@ export function createPaperEngine(deps) {
     // 学习样本:与无效成交关联或自身数字不可能 → invalid_sample
     if (d.store && d.store.all) {
       const samples = await d.store.all("learning_samples");
+      // V16.2x 工单 §13:原实现对每条样本做 engine.trades.find() = O(样本×成交) 的二次方扫描
+      // (2000 样本 × 3400 成交 ≈ 680 万次比较挤在单一同步任务)。改为一次建索引 O(n+m),语义不变(首个匹配)。
+      const tradeIdx = new Map();
+      for (const t of engine.trades) {
+        if (t && t.trade_id && !tradeIdx.has(String(t.trade_id))) tradeIdx.set(String(t.trade_id), t);
+      }
       for (const s of samples || []) {
+        workUnits += 1;
+        if (workUnits % 200 === 0) await yieldEventLoop();
         const reasons = [];
-        const linked = engine.trades.find((t) => t.trade_id === String(s.sample_id || "").replace(/^ls_/, ""));
+        const linked = tradeIdx.get(String(s.sample_id || "").replace(/^ls_/, ""));
         if (linked && linked.invalid_sample) reasons.push("linked_trade_invalid:" + (linked.repair_reason || ""));
         if (!Number.isFinite(Number(s.net_pnl))) reasons.push("pnl_not_finite");
         if (num(s.quantity) < 0) reasons.push("negative_quantity");
@@ -455,12 +499,16 @@ export function createPaperEngine(deps) {
 
   // ---- 初始化 / 迁移(幂等) ----
   async function init() {
+    perfMark("engine_init_begin");
     const savedAccount = await d.store.get("paper_account", "paper-main");
+    perfMark("engine_init_account_read");
     const savedWallets = await d.store.all("paper_wallets");
     const savedPositions = await d.store.all("paper_positions");
     const savedOrders = await d.store.all("paper_orders");
     const savedTrades = await d.store.all("paper_trades");
     const savedState = await d.store.get("paper_engine_state", "paper-engine");
+    perfMark("engine_init_data_loaded");
+    await yieldEventLoop();   // 让步:让 UI/导航先跑(IDB 读取之后的账本装配不在同一任务里完成)
     if (savedAccount) {
       engine.account = savedAccount;
       for (const w of savedWallets) engine.wallets[w.mode] = w;
@@ -508,6 +556,8 @@ export function createPaperEngine(deps) {
           shadow: false
         }));
       log("init", "AUTO leverage 学习记录重建:" + engine.leverageRecords.length + " 条(Position 级 · CLEAN · Short/Long 分池)");
+      perfMark("engine_init_leverage_done");
+      await yieldEventLoop();   // 让步:杠杆样本重建(遍历全部成交)与后续通知恢复拆成两个任务
       const savedNotifications = await d.store.all("paper_notifications");
       if (savedNotifications && savedNotifications.length) {
         engine.notifications = savedNotifications
@@ -528,8 +578,12 @@ export function createPaperEngine(deps) {
           }));
       }
       log("init", "已从本地库恢复账户与持仓(未重置为初始 10USDT)");
+      perfMark("engine_init_notifications_done");
+      await yieldEventLoop();   // 让步:完整性迁移与恢复计划各自独立成任务,避免长任务叠加
       // §18:恢复后必须做一次完整性迁移,历史脏数据不允许静默保留
       const repair = await integrityRepair();
+      perfMark("engine_init_repair_done");
+      await yieldEventLoop();
       // V15 Crash Recovery:崩溃/被杀后先给出一致性自检计划(动作与迁移由同一套路径执行,避免两套写账本)
       const plan = recoveryPlan({
         account: engine.account,
@@ -543,6 +597,8 @@ export function createPaperEngine(deps) {
         now: now()
       });
       engine.recoveryReport = { ...plan, view: recoveryView(plan) };
+      perfMark("engine_init_plan_done");
+      await yieldEventLoop();   // 让步:恢复报告之后还有通知/返回路径,保持任务粒度
       if (!plan.ok) {
         notify("SYSTEM", "启动自检 · 已恢复一致状态", plan.report_text, { key: "recovery|" + dayKeyOf(now()), always: true, severity: plan.allow_new_entry_after ? "normal" : "high" });
       }
