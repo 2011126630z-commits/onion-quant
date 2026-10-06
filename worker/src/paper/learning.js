@@ -172,6 +172,17 @@ export async function getChampion(store, modelType) {
 }
 
 export async function promoteModel(store, modelId, decision) {
+  // V16.2z 工单 §1/§14:学习数据完整性硬门 —— 数据被判定污染期间冻结一切 Champion 晋级。
+  // (已有 Champion 仍可用于 PAPER 推理;这里只拦"自动训练升级"的写入口。)
+  try {
+    const status = store && store.meta ? await store.meta("learning_status") : null;
+    if (status && status.status === "PAUSED_DATA_INTEGRITY") {
+      return { ok: false, reason: "LEARNING_PAUSED_DATA_INTEGRITY", detail: status };
+    }
+  } catch (error) { /* 读取失败不拦(保持原行为),但记录在调用方 */ }
+  if (decision && decision.learning_gate && decision.learning_gate.allow !== true) {
+    return { ok: false, reason: "LEARNING_ELIGIBILITY_GATE_BLOCKED", detail: decision.learning_gate };
+  }
   const target = await store.get("model_registry", modelId);
   if (!target) return { ok: false, reason: "model_not_found" };
   const all = await listModels(store);

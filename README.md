@@ -14,9 +14,9 @@
 
 ```
 Latest APK:  apk/app-latest.apk   (Releases 附件同名 app-latest.apk)
-Version:     v16.2y(16.2.0-paper)
-Size:        4.87 MB (5,102,398 bytes)
-SHA256:      97f5c88d3938db4f3199c283431468eab369bd98399597a1cc4da6f3eaabc7e8
+Version:     v16.2z(16.2.0-paper)
+Size:        4.87 MB (5,111,709 bytes)
+SHA256:      68d4def584770ad673f0371230bc662b3dec2580e70f60bcbd71428c570c5dbe
 ```
 
 - **PAPER ONLY**:无真实 API Key、无真实下单;应用内所有"开仓/平仓"都发生在本地模拟账户。
@@ -39,7 +39,7 @@ dev-server.mjs        本地开发服务器(node dev-server.mjs → http://local
 
 ```bash
 node tools/build.mjs          # 生成 worker/index.js 与页面内联脚本(会做语法校验)
-node tools/run-tests.mjs      # 全量测试(当前 46 套件 / 4276 断言 / 0 失败)
+node tools/run-tests.mjs      # 全量测试(当前 47 套件 / 4312 断言 / 0 失败)
 node tools/build-android.mjs && npx cap sync android
 cd android && gradlew.bat assembleDebug   # APK 输出在 android/app/build/outputs/apk/debug/
 ```
@@ -50,6 +50,7 @@ APK 发布流程(本仓库约定):`构建 → 测试通过 → 复制到 apk/app
 
 | 版本 | 要点 |
 |---|---|
+| v16.2z | 学习数据完整性 P0:① 复现基线并定位根因(raw 3411=seed 3000+rule 411→canonical 20+revision 391;revision 由 pipeline.recordAnalysis 同 id 追加 _rN 产生,与 Resolver 无关);② Schema 控制 canonical UPSERT:稳定 canonical_sample_id、首次快照冻结、重复分析只落 REVISION(learning_eligible=false)、快照哈希去重(重启/后台恢复重放行数不变);③ 真实档案一键迁移(applied 3411 → seed 3000/CANONICAL 20/REVISION 391,AMBIGUOUS 0,不删数据、不覆盖历史);④ Return Sanity(量纲/分母/高低界/有限性)+ 训练硬门 + 晋升闸门(PAUSED_DATA_INTEGRITY 冻结 Champion 晋级,推理照跑);⑤ 导出分家:有效ML数据(=20 行可训练)/审计数据(=3411 行全量);⑥ 诊断页学习数据完整性体检卡(11 项,0 P0);⑦ Outcome 严格 T→T+H 窗口与复习幂等(既有引擎逻辑,本轮用 TEST1-14 锁定) |
 | v16.2y | P0 账户审计+完整系统导出+学习数据完整性:① 2.5U 亏损逐笔归因(权威口径 -0.5273U;UI 曾显示的 -2.32U 中约 -1.8U 来自压测 seed 污染,已在归因口径中剔除并单独报告);② 账户恒等式+派生 Ledger 闭合校验(差 0.0037U 在容差内,如实披露);③ 母仓级全字段行+纯规则亏损标签+Profit→Loss 统计+蚂蚁仓分桶+重复信号检查;④ seed/synthetic/test/replay 一律 learning_eligible=false,+canonical_sample_id 折叠 revision,411 真实信号→20 个有效训练样本;⑤ 完整系统导出 zip(23 文件/13.9MB/manifest 完整性 PASS/脱敏/分块序列化不卡 UI);⑥ 模拟页新增损益分析、复盘补全生命周期字段、学习页与诊断页导出按钮分家 |
 | v16.2x | 启动响应性 P0:根因=引擎 integrityRepair 对 2000 学习样本逐条 trades.find 的 680 万次比较(300ms/轮)+ 启动即全量读库 4000 行 + retention 全表计数 + setTimeout 让步在后台 WebView 被节流。修复=Map 索引+MessageChannel 让步+Phase A/B/C 分层+DB 懒加载+空闲延后(模型/学习/清理)+成交 50 条窗口+实例审计+诊断启动性能表。桌面实测:最长主线程任务 276-309ms → 0、Time to UI 13-49ms、首点 2-12ms |
 | v16.2w | P0 真机假死根因修复:模块级未守卫存储读取(残留非法 JSON / 存储被拒)会整段杀死主脚本 → 首页全 `--`、底部导航点击无反应、永不 hydrate。修复=存储读取全守卫+自愈、BOOT_SEQUENCE 阶段插桩与 BOOT_FAILED 记录、主脚本死亡时兜底导航与启动异常横幅、首页三态(加载中/等待后台数据/读取失败)、诊断页 Boot Status |

@@ -338,8 +338,8 @@ check("V16.2y 账户恒等式 + 容差 + 非真实样本剔除口径",
   /AUDIT_TOLERANCE/.test(bundle) && /ACCOUNT_EQUATION/.test(bundle) && /view_pollution_from_seed/.test(bundle) && /learning_eligible/.test(bundle));
 check("V16.2y ZIP 导出器(零依赖 store 模式 + CRC32 + manifest 完整性)",
   /function createZip\(/.test(bundle) && /function crc32\(/.test(bundle) && /account_integrity/.test(bundle) && /canonical_ml_sample_count/.test(bundle));
-check("V16.2y 页面:两个导出分家(ML 数据集 / 完整系统 zip)+ 进度不阻塞",
-  /导出 ML 数据集\(CSV\)/.test(pageSrc) && /diagFullExportBtn/.test(pageSrc) && /quant-full-export_/.test(pageSrc)
+check("V16.2y/V16.2z 页面:导出分家(有效ML/审计 + 完整系统 zip)+ 进度不阻塞",
+  /导出有效ML数据\(JSON\)/.test(pageSrc) && /导出审计数据\(JSON\)/.test(pageSrc) && /diagFullExportBtn/.test(pageSrc) && /quant-full-export_/.test(pageSrc)
   && /QE\.buildFullExport\(\{ sections: sections, audit: audit, versions: versions, yieldFn: yieldToMain/.test(pageSrc));
 check("V16.2y 页面:损益分析(懒加载)+ 复盘生命周期字段 + 启动对账安全模式",
   /id="pfLossAcc"/.test(pageSrc) && /Entry \/ MFE \/ MAE/.test(pageSrc) && /runAccountingAuditAtBoot/.test(pageSrc)

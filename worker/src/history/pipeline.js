@@ -4,6 +4,7 @@
 //   2) 到期周期 → 拉真实K线 → Outcome 回写(已完成的不重复计算,单币失败不影响整体)
 //   3) 历史记录 → 验证视图(按周期/环境筛选的统计与校准)
 import { signalRecordFromAnalysis, shouldRecordSignal, resolveRecordId, dueHorizons, backtestSignalId } from "./record.js";
+import { canonicalIdOf, returnSanityCheck, featureSnapshotHash, timeClusterId, LC_FS_VERSION, classifyRecordType } from "../paper/learningCore.js";
 import { resolveSignalOutcomes, intervalMsOf } from "./outcome.js";
 import { buildStatsBundle, sampleQuality, summarize } from "./stats.js";
 import { HORIZONS } from "./schema.js";
@@ -26,21 +27,85 @@ export function normalizeKlines(raw, interval) {
 }
 
 // ---- 1) 记录实时分析结果 ----
+// V16.2z 工单 §2/§3/§4/§6/§9:Schema 控制的 canonical UPSERT ——
+//   · 同一 (symbol|interval|收盘K线|strategy|mode|engine|feature-schema) 首次生成 → CANONICAL(冻结快照);
+//   · 之后每次"实质变化"的分析 → 显式 REVISION(revision_of/revision_no/learning_eligible=false),绝不再产生训练样本;
+//   · 无实质变化 → 不写任何行(刷新页面/重启不增加记录);
+//   · Return Sanity 不过 → data_quality=FAILED + quarantine + learning_eligible=false(保留原数据供诊断,不偷偷修正)。
 export async function recordAnalysis(store, analysis, options) {
   const opts = options || {};
   if (!store || !analysis || !analysis.symbol) return { recorded: false, reason: "invalid_input" };
   if (analysis.limited_data) return { recorded: false, reason: "limited_data" };
   const rec = signalRecordFromAnalysis(analysis, { source: opts.source || "live" });
-  const sameSeries = await store.signals.bySymbol(rec.symbol, 400);
-  const prev = (sameSeries || [])
-    .filter((s) => s.interval === rec.interval)
-    .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0] || null;
-  const decision = shouldRecordSignal(prev, rec);
-  if (!decision.record) return { recorded: false, reason: decision.reason, id: prev ? prev.id : null };
-  const ids = new Set((sameSeries || []).map((s) => s.id));
-  rec.id = resolveRecordId(rec.id, ids);
+  const sourceStr = String(opts.source || "live");
+  rec.sample_origin = opts.sample_origin || (sourceStr === "live" ? "REAL_SIGNAL" : sourceStr.toUpperCase());
+  rec.environment = opts.environment || "PRODUCTION_PAPER";
+  rec.market_data_source = opts.market_data_source || "BINANCE_PUBLIC";
+  rec.feature_schema_version = opts.feature_schema_version || LC_FS_VERSION;
+  rec.engine_version = rec.engine_version || analysis.model_version || "rule-v0.1";
+  rec.strategy_mode = rec.strategy_mode || opts.strategy_mode || "short";
+  const cid = canonicalIdOf(rec);
+  rec.canonical_sample_id = cid;
+  rec.created_at = Number(rec.created_at) || Date.now();
+  const sanity = returnSanityCheck(rec, {});
+  if (!sanity.ok) {
+    rec.data_quality = "FAILED";
+    rec.quarantine = true;
+    rec.sanity_reasons = sanity.reasons;
+    rec.learning_eligible = false;
+  }
+  let existing = [];
+  try { existing = await store.signals.byCanonical(cid, 400); } catch (error) { existing = []; }
+  let canonical = (existing || []).find((s) => classifyRecordType(s) === "CANONICAL") || null;
+  if (!canonical) {
+    // legacy 兜底:老库还没跑迁移时,基础 id 行即视为 canonical —— 就地补 Schema 字段(不动冻结字段),不新建行
+    try {
+      const legacy = await store.signals.get(rec.id);
+      if (legacy) {
+        const patched = Object.assign({}, legacy, {
+          record_type: "CANONICAL",
+          canonical_sample_id: cid,
+          learning_eligible: legacy.learning_eligible !== false && sanity.ok,
+          feature_snapshot_hash: featureSnapshotHash(legacy),
+          migration_status: legacy.migration_status || "STAMPED_ON_WRITE"
+        });
+        await store.signals.put(patched);
+        canonical = patched;
+      }
+    } catch (error) { /* 读取失败按无 canonical 处理 */ }
+  }
+  if (!canonical) {
+    rec.record_type = "CANONICAL";
+    // §14/§23:只有 REAL_SIGNAL + PRODUCTION_PAPER 且通过 Sanity 的样本才 learning_eligible(TEST/SHADOW 永远 false)
+    rec.learning_eligible = rec.learning_eligible !== false && sanity.ok && rec.sample_origin === "REAL_SIGNAL" && rec.environment === "PRODUCTION_PAPER";
+    rec.feature_snapshot_hash = featureSnapshotHash(rec);
+    rec.memory_event_cluster = timeClusterId(rec);
+    const ids = new Set(((await store.signals.bySymbol(rec.symbol, 400)) || []).map((s) => s.id));
+    if (ids.has(rec.id)) rec.id = resolveRecordId(rec.id, ids);
+    await store.signals.put(rec);
+    return { recorded: true, reason: "canonical_created", id: rec.id, canonical_sample_id: cid, signal: rec };
+  }
+  // 已有 canonical:只在其"实质变化"时留 REVISION 审计行;无变化直接忽略
+  const decision = shouldRecordSignal(canonical, rec);
+  if (!decision.record) return { recorded: false, reason: "duplicate_no_change", id: canonical.id, canonical_sample_id: cid };
+  // §6/§10 幂等:若该快照哈希在 canonical/既有 revisions 中已存在(重启/后台恢复重放),
+  // 不再新增任何行 —— 保证"重放任意多次,行数不变"。
+  const newHash = featureSnapshotHash(rec);
+  const seenHashes = new Set((existing || []).map((s) => s.feature_snapshot_hash || featureSnapshotHash(s)));
+  if (canonical.feature_snapshot_hash) seenHashes.add(canonical.feature_snapshot_hash);
+  if (seenHashes.has(newHash)) return { recorded: false, reason: "duplicate_snapshot_hash", id: canonical.id, canonical_sample_id: cid };
+  const revisions = (existing || []).filter((s) => classifyRecordType(s) === "REVISION");
+  const revisionNo = revisions.reduce((m, s) => Math.max(m, Number(s.revision_no || 0)), 0) + 1;
+  rec.record_type = "REVISION";
+  rec.revision_of = canonical.id;
+  rec.revision_no = revisionNo;
+  rec.revision_reason = decision.reason;
+  rec.learning_eligible = false;
+  rec.exclusion_reason = "REVISION_NOT_TRAINING_SAMPLE";
+  rec.feature_snapshot_hash = newHash;
+  rec.id = canonical.id + "_r" + revisionNo;
   await store.signals.put(rec);
-  return { recorded: true, reason: decision.reason, id: rec.id, signal: rec };
+  return { recorded: true, reason: "revision_recorded:" + decision.reason, id: rec.id, canonical_sample_id: cid, signal: rec };
 }
 
 // ---- 2) 到期结果解析 ----
@@ -88,7 +153,12 @@ export async function resolveDueOutcomes(store, fetchKlines, options) {
 
   let signals = [];
   try {
-    signals = await store.signals.all(3000);
+    signals = await store.signals.all(6000);
+    // V16.2z §18/§20:Resolver 只喂 CANONICAL(legacy 无 record_type 视为 canonical);SEED/REVISION 不解析、不产生任何行
+    signals = signals.filter((s) => {
+      const t = classifyRecordType(s);
+      return t !== "SEED" && t !== "REVISION" && t !== "REPLAY" && t !== "SYNTHETIC" && t !== "TEST";
+    });
   } catch (error) {
     report.errors.push("read_signals:" + error.message);
     return report;

@@ -180,7 +180,9 @@ console.log("== E. 完整导出 ZIP(§16-§22) ==");
 console.log("== F. 页面接线静态守卫(§25-§27/§29) ==");
 {
   const pageSrc = fs.readFileSync(path.join(ROOT, "worker/src/ui/page.js"), "utf8");
-  check("WireTest: 学习页按钮改名 ML 数据集(§16/§25)", /导出 ML 数据集\(CSV\)/.test(pageSrc) && /导出 ML 数据集\(JSON\)/.test(pageSrc));
+  // §67 说明:V16.2z 起学习页按钮语义升级为"导出有效ML数据 / 导出审计数据"(工单 §36/§37:有效样本与审计数据必须分开;
+  // "ML 数据集"旧标签已不成立 —— 断言改为验证真实需求:有效导出只含可训练 canonical,审计导出包含全部并可追溯)。
+  check("WireTest: 学习页导出分家(有效ML数据 / 审计数据,§36/§37)", /导出有效ML数据\(JSON\)/.test(pageSrc) && /导出审计数据\(JSON\)/.test(pageSrc) && /quant-ml-valid_/.test(pageSrc) && /quant-ml-audit_/.test(pageSrc));
   check("WireTest: 诊断页有独立的完整系统导出按钮(§25)", /diagFullExportBtn/.test(pageSrc) && /quant-full-export_/.test(pageSrc));
   check("WireTest: 模拟页含损益分析入口(懒加载,§26)", /id="pfLossAcc"/.test(pageSrc) && /renderPfLoss/.test(pageSrc));
   check("WireTest: 复盘补全生命周期字段(§27 MFE/MAE/减仓/链路/版本)", /Entry \/ MFE \/ MAE/.test(pageSrc) && /链路\(信号\/意图\/决策\)/.test(pageSrc));

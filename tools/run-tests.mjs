@@ -50,6 +50,7 @@ const SUITES = [
   "tools/test-universe-efficiency.mjs",
   "tools/test-device-boot.mjs",
   "tools/test-account-audit.mjs",
+  "tools/test-learning-integrity.mjs",
   "tools/check-artifacts.mjs",
   "tools/smoke-http.mjs"
 ];

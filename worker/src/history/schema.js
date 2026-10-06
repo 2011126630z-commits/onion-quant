@@ -44,7 +44,9 @@ export const SIGNAL_TABLE = {
     { name: "direction", key: "direction" },
     { name: "source", key: "source" },
     { name: "backtest_run_id", key: "backtest_run_id" },
-    { name: "symbol_timestamp", key: ["symbol", "timestamp"] }
+    { name: "symbol_timestamp", key: ["symbol", "timestamp"] },
+    // V16.2z 工单 §2/§3:canonical 索引 —— 写入端 UPSERT 判定与迁移查询走索引,不做全表扫描
+    { name: "canonical_sample", key: "canonical_sample_id" }
   ]
 };
 

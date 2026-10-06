@@ -115,7 +115,9 @@ const analysis = computeAnalysis({
   nowMs: anchor + 300
 });
 const r1 = await recordAnalysis(store, analysis, { source: "live" });
-check("首次分析写入 Signal", r1.recorded === true && r1.reason === "first", JSON.stringify(r1));
+// §67 说明:V16.2z 起首次写入的 reason 由 "first" 升级为 "canonical_created"(Schema 控制的 canonical UPSERT;
+// 语义未变:首次分析落库一条可训练样本,且带冻结快照/稳定 canonical_sample_id)。
+check("首次分析写入 Signal", r1.recorded === true && r1.reason === "canonical_created" && typeof r1.canonical_sample_id === "string", JSON.stringify({ recorded: r1.recorded, reason: r1.reason, cid: r1.canonical_sample_id }));
 eq("库中 1 条", await store.signals.count(), 1);
 const stored = await store.signals.get(r1.id);
 eq("落库使用真实分析值", [stored.symbol, stored.direction, stored.confidence, stored.signal_strength], [analysis.symbol, analysis.direction, analysis.confidence, analysis.signal_strength]);

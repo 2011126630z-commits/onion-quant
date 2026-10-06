@@ -244,6 +244,7 @@ export async function createHistoryStore(options) {
       all: (limit) => backend.all(SIGNAL_TABLE.name, limit),
       bySymbol: (symbol, limit) => backend.byIndex(SIGNAL_TABLE.name, "symbol", symbol, limit),
       bySource: (source, limit) => backend.byIndex(SIGNAL_TABLE.name, "source", source, limit),
+      byCanonical: (canonicalId, limit) => backend.byIndex(SIGNAL_TABLE.name, "canonical_sample", canonicalId, limit),
       del: (id) => backend.del(SIGNAL_TABLE.name, id),
       delMany: (ids) => backend.delMany(SIGNAL_TABLE.name, ids),
       clear: () => backend.clear(SIGNAL_TABLE.name),

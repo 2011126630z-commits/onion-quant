@@ -142,7 +142,8 @@ const PAGE_MODULES = [
   "src/ui/viewModels.js",
   "src/ui/navState.js",
   "src/ui/exportBundle.js",
-  "src/paper/accountAudit.js"
+  "src/paper/accountAudit.js",
+  "src/paper/learningCore.js"
 ];
 
 // 浏览器暴露的引擎 API(页面脚本通过 window.QEngine 调用,避免顶层命名冲突)
@@ -198,6 +199,12 @@ const PAGE_EXPORTS = [
   "classifyLoss", "lossAttribution", "duplicateScan", "canonicalSampleId", "learningIntegrity", "ledgerFromRecords",
   "redactSensitive", "buildLossReport",
   "EXPORT_VERSION", "crc32", "createZip", "buildFullExport",
+  // V16.2z:学习数据完整性核心(Schema 控制 canonical/revision/eligibility/迁移/体检)
+  "LEARNING_CORE_VERSION", "LEARNING_SCHEMA_VERSION", "FEATURE_SCHEMA", "featureVectorByName", "featureSnapshotHash",
+  "canonicalKeyOf", "canonicalIdOf", "closedCandleCloseTime", "classifyRecordType", "originOf", "returnSanityCheck",
+  "learningEligibilityGate", "migrationPlan", "timeClusterId", "learningIntegrityReport", "learningDataHealthCheck",
+  "filterExportRecords", "LC_HORIZON_MS", "HORIZONS_ALL", "MODEL_TARGET_HORIZONS", "modelTargetOf",
+  "outcomeTargetTime", "outcomeWindow", "OUTCOME_JOB_STATES", "outcomeJobState",
   "createPaperRuntime", "buildQuotes", "runtimeStatus", "runtimeInstanceCount", "getRuntime", "RUNTIME_STATES", "createHistoryStore",
   "planRetention", "applyRetention", "trimSyncQueue", "coreHistoryIntact", "retentionSummary", "RETENTION_POLICY",
   "openFuturesPosition", "closeFuturesPosition", "liquidationPriceOf", "isLiquidated", "futuresUnrealized",

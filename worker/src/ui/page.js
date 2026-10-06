@@ -1434,9 +1434,9 @@ export const page = String.raw`<!doctype html>
           <div class="v-note" id="dsPreviewNote">尚未生成数据集。</div>
           <div class="v-actions" style="margin-top:8px">
             <button id="dsPreviewBtn" class="sec" type="button">预览</button>
-        <button id="dsCsvBtn" class="primary-btn" type="button">导出 ML 数据集(CSV)</button>
-        <button id="dsJsonBtn" class="sec" type="button">导出 ML 数据集(JSON)</button>
-        <div class="v-note" style="margin-top:6px">此导出 = ML 样本集(信号/特征/结果/标签),不含账户与账本。完整系统数据(账户/持仓/订单/成交/账本/日志)在 我的 → 系统诊断 导出 zip。</div>
+        <button id="dsCsvBtn" class="primary-btn" type="button">导出有效ML数据(JSON)</button>
+        <button id="dsJsonBtn" class="sec" type="button">导出审计数据(JSON)</button>
+        <div class="v-note" style="margin-top:6px">有效ML数据 = 仅可训练 canonical(REAL_SIGNAL/PRODUCTION_PAPER/learning_eligible);审计数据 = 全部(含 Seed/Revision/排除项)用于 Debug。完整系统数据(账户/账本/日志)在 我的 → 系统诊断 导出 zip。</div>
           </div>
         </div>
         <div class="card">
@@ -1593,6 +1593,10 @@ export const page = String.raw`<!doctype html>
         <div class="card" id="diagErrorsCard" style="margin-bottom:10px">
           <h2 style="margin-bottom:6px">错误去重列表</h2>
           <div id="diagList"></div>
+        </div>
+        <div class="card" id="diagLearningCard" style="margin-bottom:10px">
+          <h2 style="margin-bottom:6px">学习数据完整性 · Learning Data Integrity</h2>
+          <div id="diagLearningBox"></div>
         </div>
         <div class="card kd-hide" id="diagP0Card" style="margin-bottom:10px">
           <h2 style="margin-bottom:6px">关键错误(资金 / 账本 / 崩溃)</h2>
@@ -3844,8 +3848,8 @@ export const page = String.raw`<!doctype html>
           dsState.dataset = null;
         });
         $("dsPreviewBtn").addEventListener("click", () => { void previewDataset(); });
-        $("dsCsvBtn").addEventListener("click", () => { void exportDataset("csv"); });
-        $("dsJsonBtn").addEventListener("click", () => { void exportDataset("json"); });
+        $("dsCsvBtn").addEventListener("click", () => { void exportMlDataset("valid"); });
+        $("dsJsonBtn").addEventListener("click", () => { void exportMlDataset("audit"); });
       }
 
       // 导出前重新从本地库读取,保证导出内容与库中数据一致
@@ -4111,6 +4115,105 @@ export const page = String.raw`<!doctype html>
             bootFail("account_audit_mismatch", new Error("ACCOUNTING_MISMATCH"));
           }
         } catch (error) { bootFail("account_audit", error); }
+      }
+      // ===== V16.2z:学习数据完整性(迁移 / 体检 / 导出分家 / 统计分解;工单 §10-§13/§32-§37) =====
+      let learningMigrationBusy = false;
+      async function runLearningMigration() {
+        if (learningMigrationBusy) return { ok: false, reason: "busy" };
+        learningMigrationBusy = true;
+        try {
+          const store = await historyStore();
+          const done = await store.meta("learning_migration_v1");
+          if (done && done.status === "DONE") return { ok: true, reason: "already_done", summary: done.summary };
+          const signals = await store.signals.all(20000);
+          await yieldToMain();
+          const plan = QE.migrationPlan(signals, { now: Date.now() });
+          const byId = new Map(signals.map((s) => [s.id, s]));
+          let applied = 0;
+          for (let i = 0; i < plan.patches.length; i += 200) {
+            for (const p of plan.patches.slice(i, i + 200)) {
+              const row = byId.get(p.id);
+              if (!row) continue;
+              await store.signals.put(Object.assign({}, row, p.patch));
+              applied += 1;
+            }
+            await yieldToMain();   // 后台分批 + checkpoint(包体不阻塞 UI,支持断点续跑)
+            try { await store.meta("learning_migration_v1", { status: "RUNNING", applied: applied, total: plan.patches.length, at: Date.now() }); } catch (error) { /* checkpoint 失败不中断 */ }
+          }
+          await store.meta("learning_migration_v1", { status: "DONE", summary: plan.summary, applied: applied, at: Date.now() });
+          viewState.lastLearningInspector = null;
+          await refreshLearningStatus();
+          return { ok: true, summary: plan.summary, applied: applied };
+        } catch (error) {
+          diagLog("learning-migration", error);
+          return { ok: false, reason: String((error && error.message) || error) };
+        } finally { learningMigrationBusy = false; }
+      }
+      async function refreshLearningStatus() {
+        try {
+          const store = await historyStore();
+          const signals = await store.signals.all(20000);
+          const health = QE.learningDataHealthCheck(signals, { now: Date.now() });
+          await store.meta("learning_status", { status: health.learning_status, checks: health.checks, at: Date.now() });
+          return health;
+        } catch (error) { diagLog("learning-status", error); return null; }
+      }
+      async function loadLearningInspector() {
+        const now = Date.now();
+        if (viewState.lastLearningInspector && now - viewState.lastLearningInspector.at < 60000) return viewState.lastLearningInspector;
+        const store = await historyStore();
+        const signals = await store.signals.all(20000);
+        await yieldToMain();
+        const report = QE.learningIntegrityReport(signals, {});
+        const health = QE.learningDataHealthCheck(signals, { now: now });
+        viewState.lastLearningInspector = { at: now, report: report, health: health, signals: signals };
+        return viewState.lastLearningInspector;
+      }
+      async function renderDiagLearning() {
+        const box = $("diagLearningBox");
+        if (!box) return;
+        box.replaceChildren(vEl("div", "v-note", "正在体检(后台分块,不阻塞界面)..."));
+        try {
+          const ins = await loadLearningInspector();
+          const R = ins.report;
+          const H = ins.health;
+          box.replaceChildren();
+          const row = (k, v, cls) => { const el = vEl("div", "hm-row"); el.appendChild(vEl("span", "k", k)); const val = vEl("span", "v", String(v)); if (cls) val.className = cls; el.appendChild(val); return el; };
+          box.appendChild(row("学习状态", H.learning_status, H.p0_fail ? "red" : "green"));
+          box.appendChild(row("原始记录 / Seed / Revision", R.raw_record_count + " / " + R.seed_count + " / " + R.revision_count));
+          box.appendChild(row("Canonical(独立) / 有效可训练", R.canonical_count + "(" + R.unique_canonical_count + ") / " + R.learning_eligible_count));
+          box.appendChild(row("排除 / 隔离 / 待标签", R.excluded_count + " / " + R.quarantined_count + " / " + R.pending_outcome_count));
+          const bad = H.checks.filter((c) => !c.ok);
+          for (const c of bad.slice(0, 8)) box.appendChild(vEl("div", "v-note", (c.p0 ? "[P0] " : "[WARN] ") + c.id + " × " + c.count));
+          if (!bad.length) box.appendChild(vEl("div", "empty-state", "体检通过:无数据完整性问题。"));
+          const syms = Object.entries(R.by_symbol).sort((a, b) => b[1] - a[1]).slice(0, 8);
+          box.appendChild(vEl("div", "v-note", "按 Symbol(原始口径):" + syms.map(([s, n]) => s.replace("USDT", "") + " " + n).join(" · ")));
+        } catch (error) { box.replaceChildren(vEl("div", "v-note", "体检失败:" + String((error && error.message) || error).slice(0, 120))); }
+      }
+      async function exportMlDataset(mode) {
+        try {
+          if (mode === "valid" || mode === "audit") { /* 新语义 */ }
+          const ins = await loadLearningInspector();
+          const rows = QE.filterExportRecords(ins.signals, mode);
+          const out = {
+            export_type: mode === "audit" ? "ml_audit" : "ml_valid",
+            learning_schema_version: QE.LEARNING_SCHEMA_VERSION,
+            feature_schema_version: QE.FEATURE_SCHEMA && QE.FEATURE_SCHEMA.version,
+            exported_at: new Date().toISOString(),
+            meta: QE.learningIntegrityReport(ins.signals, {}),
+            row_count: rows.length,
+            rows: rows
+          };
+          const d = new Date();
+          const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0") + "_" + String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0");
+          const name = (mode === "audit" ? "quant-ml-audit_" : "quant-ml-valid_") + stamp + ".json";
+          downloadText(JSON.stringify(out, null, 1), name, "application/json");
+          $("dsPreviewNote").textContent = "已导出 " + name + "(" + rows.length + " 行 · " + (mode === "audit" ? "含 Seed/Revision 供审计" : "仅有效 canonical") + ")";
+          return out;
+        } catch (error) {
+          $("dsPreviewNote").textContent = "导出失败:" + String((error && error.message) || error).slice(0, 120);
+          return null;
+        }
       }
       function openDataset() {        if (!QE) {
           $("dsPreviewNote").textContent = "导出模块未加载,请刷新页面重试。";
@@ -4612,6 +4715,7 @@ export const page = String.raw`<!doctype html>
         pfTradesShown: 50,
         pfLossLoaded: false,
         lastAudit: null,
+        lastLearningInspector: null,
         // V16.2s:市场页分段状态(市场/自选)——进详情再返回仍在原段;两段滚动位置各自保存
         mkSeg: "market",
         mkScroll: { market: 0, watch: 0 },
@@ -8742,9 +8846,11 @@ export const page = String.raw`<!doctype html>
           }
         } catch (error) { diagLog("diag-universe", error); }
 
+        // V16.2z §34:学习数据完整性卡片(与诊断同页刷新)
+        void renderDiagLearning();
+
         // 面包屑时间线(最早的在上,最近的在下)
-        const crumbBox = $("diagCrumbs");
-        crumbBox.replaceChildren();
+        const crumbBox = $("diagCrumbs");        crumbBox.replaceChildren();
         if (crumbs.length) {
           const ul = vEl("ul", "kd-crumbs");
           for (const c of crumbs) {
@@ -10457,6 +10563,8 @@ export const page = String.raw`<!doctype html>
         bootEnd("BOOT_ACCOUNT_SUMMARY_READY");
         // V16.2y 工单 §2/§29:启动即账户对账(不阻塞;不一致 → 暂停新开仓 + fault_id;历史保留)
         try { void runAccountingAuditAtBoot(); } catch (error) { bootFail("account_audit_sync", error); }
+        // V16.2z 工单 §32/§38:学习数据迁移 —— 空闲后台执行,分批 + checkpoint,不阻塞启动
+        scheduleIdle("learning-migration", () => { void runLearningMigration(); });
         // V16.2w P0:UI_READY = 本地账户已 hydrate + 导航可用(不依赖任何 Market API) —— 最先达成
         bootStage("ui_ready");
         BOOT.ui_ready = true;
@@ -10734,6 +10842,14 @@ export const page = String.raw`<!doctype html>
         const host = $("openLearning");
         host.querySelector(".coin-sub").textContent = vm.status_text;
         $("learningBadge").textContent = champ ? champ.version : "--";
+        // V16.2z §13:统计必须分解(原始/Seed/Revision/Canonical/有效),不再显示单一大数字误导
+        try {
+          const ins = await loadLearningInspector();
+          const R = ins.report;
+          const badge = $("learningBadge");
+          if (badge) badge.textContent = (champ ? champ.version + " · " : "") + "有效 " + R.learning_eligible_count;
+          host.querySelector(".coin-sub").textContent = vm.status_text + " · 原始 " + R.raw_record_count + "(Seed " + R.seed_count + " / Rev " + R.revision_count + " / Canonical " + R.unique_canonical_count + " / 有效 " + R.learning_eligible_count + ")";
+        } catch (error) { /* 统计失败不影响学习页其余内容 */ }
         const detail = $("learningDetail");
         if (detail) {
           detail.textContent = "模型数量 " + models.length + " · 评估记录 " + evals.length + " · 学习样本 " + samples.length + (drift && drift.drift_score != null ? " · 漂移指标 " + drift.drift_score : "") + "(技术信息,日常无需关注)";
