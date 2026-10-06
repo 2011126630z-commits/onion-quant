@@ -2,9 +2,18 @@
 
 > 跨轮上下文接力文件(规范 §2)。聊天历史不承担长期记忆。
 
-## 已完成(近七轮)
+## 已完成(近八轮)
 
-- **V16.2y(本轮)**:P0 账户审计 + 完整系统导出 + 学习数据完整性 —— ①真实账户归因:**权威净亏 -0.5273U**(100.0000→99.4727,
+- **V16.2z(本轮)**:ML 数据完整性修复 —— ①**基线精确复现**(raw 3411=seed 3000+rule 411;canonical 20;revision 391;最大组 ×102)并把 revision 产码点钉死:
+  `pipeline.recordAnalysis`(同 id 经 `resolveRecordId` 追加 `_rN` 并 put 新行),**Resolver 从未产生 revision**(它只按 signal_id 幂等写 outcomes)。
+  ②Schema 控制写入:稳定 `canonical_sample_id`、首次快照冻结(`feature_snapshot_hash`)、实质变化只落显式 REVISION(learning_eligible=false)、
+  **快照哈希去重**(重启/后台恢复重放:行数不变)。③真实档案迁移(applied 3411,空闲后台/分批/checkpoint/不删数据)→ **SEED 3000 + CANONICAL 20 + REVISION 391**,
+  AMBIGUOUS 0,体检 **0 P0**,learning_status OK。④闸门:eligibility(7 条件)+ Return Sanity(多维)+ **晋升闸门**(PAUSED_DATA_INTEGRITY 冻结自动晋级,PAPER 推理照跑)。
+  ⑤导出分家:`quant-ml-valid`(20 行) / `quant-ml-audit`(3411 行)+ 动态 Meta;UI 统计分解;诊断页"学习数据完整性"卡(11 项)。
+  ⑥Resolver 过滤 SEED/REVISION;窗口 T→T+H 由 TEST7/8 锁定;非 BTC 链路 TEST 环境证明可通(SOL/DOGE/LINK),正式缺口不造假。
+  基线 **47 套件 / 4312 断言 / 0 失败**(test-learning-integrity 36 断言含工单 TEST1-14);Release `v16.2z`;真机 **NOT VERIFIED**。
+  NOT CHANGED:loop 分析→dataset 主链路接线(§21,缺口已量化:SOL 有成交 0 REAL_SIGNAL)、引擎原生逐事件 Ledger、§31 市场事件聚类(当前仅 timeClusterId 最小实现)。
+- **V16.2y**:P0 账户审计 + 完整系统导出 + 学习数据完整性 —— ①真实账户归因:**权威净亏 -0.5273U**(100.0000→99.4727,
   恒等式差 0;UI 旧的"-2.32"里 ~1.8U 是上轮压测 seed 污染,已剔除并单列 view_pollution_from_seed);12 真实母仓(2 盈 10 亏):
   毛 -0.4613/费 0.0622/净 -0.5236,全部 stop_loss 出场,**Profit→Loss 10/10 次(错过 0.6578U)**——亏损结构=退出策略让回浮盈;
   费拖 13.49%;重复开仓/跨池同信号 = 0;口径差 0.0037U 如实披露(容差内,未触发安全模式)。
